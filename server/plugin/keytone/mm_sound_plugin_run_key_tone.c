@@ -179,14 +179,24 @@ int MMSoundPlugRunKeytoneControlRun(void)
 		debug_msg("[%s] The Keytone plugin is running......READ returns....\n", __func__);
 
 		pthread_mutex_lock(&g_keytone.sw_lock);
-		g_keytone.volume_config = data.volume_config;
-		debug_log("[%s] The volume config is [%x]\n", __func__, g_keytone.volume_config);
 
 		if (g_keytone.state == RENDER_STARTED) {
 			g_keytone.state = RENDER_STOP;
 			pthread_cond_wait(&g_keytone.sw_cond, &g_keytone.sw_lock);
 		}
-		
+
+		/* Close audio handle if volume_config is changed */
+		if ((g_CreatedFlag == MMSOUND_TRUE) && (g_keytone.volume_config != data.volume_config)) {
+			debug_msg("[%s] Close audio handle if volume config is changed previous:%x new:%x",
+				__func__, g_keytone.volume_config, data.volume_config);
+			if(AVSYS_FAIL(avsys_audio_close(g_keytone.handle)))	{
+				debug_critical("avsys_audio_close() failed !!!!!!!!\n");
+			}
+			g_CreatedFlag = MMSOUND_FALSE;
+		}
+		g_keytone.volume_config = data.volume_config;
+		debug_log("[%s] The volume config is [%x]\n", __func__, g_keytone.volume_config);
+
 		ret = mm_source_open_file(data.filename, &source, MM_SOURCE_NOT_DRM_CONTENTS);
 		if (ret != MM_ERROR_NONE) {
 			debug_critical("Cannot open files\n");
