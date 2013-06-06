@@ -21,6 +21,9 @@ BuildRequires: pkgconfig(glib-2.0)
 BuildRequires: pkgconfig(vconf)
 BuildRequires: pkgconfig(heynoti)
 BuildRequires:  pkgconfig(security-server)
+BuildRequires:  pkgconfig(libsystemd-daemon)
+%{?systemd_requires}
+
 
 %description
 MMSound Package contains client lib and sound_server binary for sound system

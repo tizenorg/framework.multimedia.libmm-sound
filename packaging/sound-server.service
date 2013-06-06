@@ -2,6 +2,7 @@
 Description=Start the sound profile service
 
 [Service]
+Type=notify
 ExecStart=/usr/bin/sound_server -S
 Nice=5
 OOMScoreAdjust=-100

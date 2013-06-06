@@ -19,6 +19,7 @@ sound_server_SOURCES = mm_sound_mgr_codec.c \
 
 sound_server_CFLAGS = -I$(srcdir)/../include \
 					  -I$(srcdir)/include \
+					  $(SYSTEMD_DAEMON_CFLAGS) \
 					  $(MMCOMMON_CFLAGS) \
 					  $(MMLOGSVR_CFLAGS) \
 					  -DMMF_LOG_OWNER=0x020 \
@@ -34,6 +35,7 @@ sound_server_CFLAGS = -I$(srcdir)/../include \
 
 sound_server_LDADD = $(MMLOGSVR_LIBS) \
 		     -ldl \
+		     $(SYSTEMD_DAEMON_LIBS) \
 		     $(MMCOMMON_LIBS) \
 		     $(MMSESSION_LIBS) \
 		     $(AVSYSTEM_LIBS) \

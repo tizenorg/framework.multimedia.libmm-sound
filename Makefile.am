@@ -21,6 +21,7 @@ libmmfsound_la_DEPENDENCIES = common/libmmfsoundcommon.la
 								
 
 libmmfsound_la_CFLAGS = -I$(srcdir)/include \
+			$(SYSTEMD_DAEMON_CFLAGS) \
 			$(MMCOMMON_CFLAGS) \
 			$(VCONF_CFLAGS) \
 			-I$(srcdir)/servertype/include \
@@ -37,6 +38,7 @@ endif
 			
 
 libmmfsound_la_LIBADD = $(MMCOMMON_LIBS) \
+			$(SYSTEMD_DAEMON_LIBS) \
 			$(AVSYSTEM_LIBS) \
 			$(MMSESSION_LIBS) \
 			$(AUDIOSESSIONMGR_LIBS) \
@@ -63,6 +65,7 @@ includelibmmfkeysounddir = $(includedir)/mmf
 libmmfkeysound_la_SOURCES = mm_sound_keysound.c
 
 libmmfkeysound_la_CFLAGS = -I$(srcdir)/include \
+			$(SYSTEMD_DAEMON_CFLAGS) \
 			$(MMCOMMON_CFLAGS) \
 			-D_USE_INTERNAL_SOUND_PATH_
 

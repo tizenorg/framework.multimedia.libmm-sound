@@ -19,6 +19,7 @@
  *
  */
 
+#include <systemd/sd-daemon.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -272,6 +273,9 @@ int main(int argc, char **argv)
 		/* set hibernation check */
 		_mm_sound_check_hibernation (HIBERNATION_SOUND_CHECK_PATH);
 #endif
+
+		// Notyfication to systemd
+		sd_notify(1, "READY=1");
 
 		/* Start Ipc mgr */
 		MMSoundMgrIpcReady();
