@@ -98,12 +98,12 @@ static const ASM_sound_cases_t ASM_sound_case[ASM_PRIORITY_MATRIX_MIN+1][ASM_PRI
 	*/
 	/*   SP SC SS SO SA, EP EC ES EO EA, NT CL SF EF EU, AL VC MT RC EM ER  */
 		{ 8, 8, 8, 8, 8,  6, 6, 6, 6, 6,  8, 6, 8, 6, 6,  6, 6, 8, 6, 6, 9},	/* 00 Shared MMPlayer */
-		{ 8, 8, 8, 8, 8,  5, 5, 5, 5, 5,  8, 5, 8, 5, 8,  5, 5, 8, 5, 5, 9},	/* 01 Shared MMCamcorder */
+		{ 8, 8, 8, 8, 8,  5, 5, 5, 5, 5,  8, 5, 8, 5, 8,  5, 5, 8, 5, 8, 9},	/* 01 Shared MMCamcorder */
 		{ 8, 8, 8, 8, 8,  5, 5, 5, 5, 5,  8, 5, 8, 5, 5,  5, 5, 8, 5, 5, 9},	/* 02 Shared MMSound */
 		{ 8, 8, 8, 8, 8,  5, 5, 5, 5, 5,  8, 5, 8, 5, 6,  5, 5, 8, 5, 5, 9},	/* 03 Shared OpenAL */
 		{ 8, 8, 8, 8, 8,  5, 5, 5, 5, 5,  8, 5, 8, 5, 8,  5, 5, 8, 5, 5, 9},	/* 04 Shared AVsystem */
 		{ 6, 6, 6, 6, 6,  6, 6, 6, 6, 6,  8, 6, 6, 6, 6,  6, 6, 8, 6, 6, 9},	/* 05 Exclusive MMPlayer */
-		{ 5, 5, 5, 5, 5,  5, 5, 5, 5, 5,  8, 5, 5, 5, 8,  5, 5 ,8, 5, 5, 9},	/* 06 Exclusive MMCamcorder */
+		{ 5, 5, 5, 5, 5,  5, 5, 5, 5, 5,  8, 5, 5, 5, 8,  5, 5 ,8, 5, 8, 9},	/* 06 Exclusive MMCamcorder */
 		{ 5, 5, 5, 5, 5,  5, 5, 5, 5, 5,  8, 5, 5, 5, 5,  5, 5, 8, 5, 5, 9},	/* 07 Exclusive MMSound */
 		{ 5, 5, 5, 5, 5,  5, 5, 5, 5, 5,  8, 5, 5, 5, 6,  5, 5, 8, 5, 5, 9},	/* 08 Exclusive OpenAL */
 		{ 5, 5, 5, 5, 5,  5, 5, 5, 5, 5,  8, 5, 5, 5, 8,  5, 5, 8, 5, 5, 9},	/* 09 Exclusive AVsystem */
