@@ -87,6 +87,8 @@ mkdir -p %{buildroot}%{_sysconfdir}/rc.d/rc5.d
 ln -s %{_sysconfdir}/rc.d/init.d/soundserver %{buildroot}%{_sysconfdir}/rc.d/rc3.d/S23soundserver
 ln -s %{_sysconfdir}/rc.d/init.d/soundserver %{buildroot}%{_sysconfdir}/rc.d/rc4.d/S23soundserver
 
+mkdir -p %{buildroot}/usr/share/license
+cp LICENSE.APLv2 %{buildroot}/usr/share/license/%{name}
 
 
 %post
@@ -127,6 +129,7 @@ ln -s %{_sysconfdir}/rc.d/init.d/soundserver %{buildroot}%{_sysconfdir}/rc.d/rc4
 %{_libdir}/systemd/system/multi-user.target.wants/sound-server.path
 %{_libdir}/systemd/system/sound-server.service
 %{_libdir}/systemd/system/sound-server.path
+/usr/share/license/%{name}
 
 %files devel
 %defattr(-,root,root,-)
