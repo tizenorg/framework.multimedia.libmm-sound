@@ -1,0 +1,12 @@
+[Unit]
+Description=Start the sound profile service
+After=pulseaudio.service
+
+[Service]
+ExecStart=/usr/bin/sound_server -S
+Restart=always
+RestartSec=0
+MemoryLimit=50M
+
+[Install]
+WantedBy=sound.target

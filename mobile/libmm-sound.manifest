@@ -1,0 +1,14 @@
+<manifest>
+	<define>
+		<domain name="sound_server"/>
+	</define>
+	<request>
+		<domain name="_"/>
+	</request>
+	<assign>
+		<filesystem path="/usr/bin/sound_server" label="sound_server" exec_label="sound_server"/>
+		<filesystem path="/etc/rc.d/init.d/soundserver" label="_" exec_label="none" />
+		<filesystem path="/etc/rc.d/rc3.d/S23soundserver" label="_" exec_label="none" />
+		<filesystem path="/etc/rc.d/rc4.d/S23soundserver" label="_" exec_label="none" />
+	</assign>
+</manifest>

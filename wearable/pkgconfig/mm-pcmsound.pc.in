@@ -1,0 +1,10 @@
+prefix = @prefix@
+exec_prefix= @exec_prefix@
+libdir = @libdir@
+includedir = @includedir@
+
+Name : mmfpcmsound
+Description : Multimedia Framework PCM Sound Library
+Version : @VERSION@
+Libs : -L${libdir} -lmmfpcmsound 
+Cflags : -I${includedir}/mmf 
