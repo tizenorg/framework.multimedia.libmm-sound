@@ -1,49 +1,32 @@
 Name:       libmm-sound
 Summary:    MMSound Package contains client lib and sound_server binary
-%if 0%{?tizen_profile_mobile}
-Version:    0.7.4
+Version:    0.9.182
 Release:    0
-%else
-Version:    0.10.35
-Release:    0
-VCS:        magnolia/framework/multimedia/libmm-sound#libmm-sound-0.8.49_0-114-gdda07391aaae65156acdc15e082daaedde5f2f42
-%endif
 Group:      System/Libraries
 License:    Apache-2.0
 Source0:    %{name}-%{version}.tar.gz
-%if "%{_repository}" == "mobile"
-Source1:    sound-server.service.mobile
+Source1:    sound-server.service
 Source2:    sound-server.path
-Requires(pre): /bin/pidof
-%else
-Source1:    sound-server.service.wearable
-%endif
 Requires(post): /sbin/ldconfig
 Requires(post): /usr/bin/vconftool
 Requires(postun): /sbin/ldconfig
-%if "%{_repository}" == "wearable"
-BuildRequires: pkgconfig(gio-2.0)
-BuildRequires: pkgconfig(security-server)
-BuildRequires: pkgconfig(iniparser)
-BuildRequires: pkgconfig(capi-network-bluetooth)
-BuildRequires: pkgconfig(bluetooth-api)
-BuildRequires: pkgconfig(libtremolo)
-%endif
-%if "%{_repository}" == "mobile"
-BuildRequires: pkgconfig(sysman)
-BuildRequires: pkgconfig(heynoti)
-BuildRequires:  pkgconfig(security-server)
-BuildRequires:  pkgconfig(libsystemd-daemon)
-%{?systemd_requires}
-%endif
 BuildRequires: pkgconfig(mm-common)
-BuildRequires: pkgconfig(avsystem)
 BuildRequires: pkgconfig(mm-log)
 BuildRequires: pkgconfig(mm-session)
 BuildRequires: pkgconfig(audio-session-mgr)
 BuildRequires: pkgconfig(glib-2.0)
+BuildRequires: pkgconfig(gio-2.0)
 BuildRequires: pkgconfig(vconf)
-
+BuildRequires: pkgconfig(libpulse)
+BuildRequires: pkgconfig(iniparser)
+BuildRequires: pkgconfig(capi-network-bluetooth)
+%ifarch %{arm}
+%endif
+%if "%{?tizen_profile_name}" == "wearable"
+BuildRequires: pkgconfig(bluetooth-api)
+%endif
+BuildRequires: pkgconfig(libtremolo)
+BuildRequires: model-build-features
 
 %description
 MMSound Package contains client lib and sound_server binary for sound system
@@ -77,212 +60,148 @@ MMSound utility package - contians mm_sound_testsuite, sound_check for sound sys
 %setup -q
 
 %build
-%if 0%{?tizen_profile_wearable}
-cd wearable
-%else
-cd mobile
-%endif
+%define tizen_audio_feature_ogg_enable 1
+%define tizen_audio_feature_bluetooth_enable 1
 
-%if 0%{?tizen_profile_wearable}
+%if "%{?tizen_profile_name}" == "wearable"
+%define tizen_audio_feature_hfp 1
+%else if
+%define tizen_audio_feature_hfp 0
+%endif
 
 %ifarch %{arm}
-	CFLAGS="%{optflags} -fvisibility=hidden -DMM_DEBUG_FLAG -DASM_FOR_PRODUCT -DEXPORT_API=\"__attribute__((visibility(\\\"default\\\")))\"" ;export CFLAGS
+	CFLAGS="%{optflags} -fvisibility=hidden -DMM_DEBUG_FLAG -DEXPORT_API=\"__attribute__((visibility(\\\"default\\\")))\"" ;export CFLAGS
 %else
-	CFLAGS="%{optflags} -fvisibility=hidden -DMM_DEBUG_FLAG -DASM_FOR_PRODUCT -DEXPORT_API=\"__attribute__((visibility(\\\"default\\\")))\"" ;export CFLAGS
+	CFLAGS="%{optflags} -fvisibility=hidden -DMM_DEBUG_FLAG -DEXPORT_API=\"__attribute__((visibility(\\\"default\\\")))\"" ;export CFLAGS
 %endif
-	CFLAGS+=" -DOGG_SUPPORT";export CFLAGS
+
+%if "%{?tizen_profile_name}" == "wearable"
+	CFLAGS+=" -DTIZEN_MICRO";export CFLAGS
+%else if "%{?tizen_profile_name}" == "mobile"
+%endif
+
+%if 0%{?tizen_audio_feature_bluetooth_enable}
 	CFLAGS+=" -DSUPPORT_BT_SCO";export CFLAGS
-    CFLAGS+=" -DTIZEN_MICRO";export CFLAGS
-
-%else
-
-%ifarch %{arm}
-CFLAGS="%{optflags} -fvisibility=hidden -DMM_DEBUG_FLAG -DEXPORT_API=\"__attribute__((visibility(\\\"default\\\")))\""; export CFLAGS
-%else
-%if 0%{?simulator}
-CFLAGS="%{optflags} -fvisibility=hidden -DMM_DEBUG_FLAG -DEXPORT_API=\"__attribute__((visibility(\\\"default\\\")))\""; export CFLAGS
-%else
-CFLAGS="%{optflags} -fvisibility=hidden -DMM_DEBUG_FLAG -DEXPORT_API=\"__attribute__((visibility(\\\"default\\\")))\""; export CFLAGS
-%endif
-%endif
-
 %endif
 
 ./autogen.sh
-
-%if 0%{?tizen_profile_wearable}
 %configure \
+%if 0%{?tizen_audio_feature_hfp}
+       --enable-hfp \
+%endif
+%if 0%{?tizen_audio_feature_ogg_enable}
        --enable-ogg \
+%endif
+%if 0%{?tizen_audio_feature_bluetooth_enable}
        --enable-bluetooth \
+%endif
 %ifarch %{arm}
-	--prefix=/usr --enable-pulse --disable-security
+	--prefix=/usr --enable-pulse
 %else
-	--prefix=/usr --enable-pulse --disable-security
+	--prefix=/usr --enable-pulse
 %endif
-%else 
-%configure --prefix=/usr --enable-pulse --enable-security
-%endif
+
 make %{?_smp_mflags}
 
 %install
 rm -rf %{buildroot}
-
-%if 0%{?tizen_profile_wearable}
-cd wearable
 mkdir -p %{buildroot}/usr/share/license
-mkdir -p %{buildroot}/opt/usr/devel/usr/bin
 cp LICENSE.APLv2 %{buildroot}/usr/share/license/%{name}
 cp LICENSE.APLv2 %{buildroot}/usr/share/license/libmm-sound-tool
-%else
-cd mobile
-%endif
-
+mkdir -p %{buildroot}/opt/etc/dump.d/module.d/
+cp dump_audio.sh %{buildroot}/opt/etc/dump.d/module.d/dump_audio.sh
 
 %make_install
-%if 0%{?tizen_profile_wearable}
-install -d %{buildroot}%{_libdir}/systemd/system/sound.target.wants
-install -m0644 %{SOURCE1} %{buildroot}%{_libdir}/systemd/system/
-mv %{buildroot}%{_libdir}/systemd/system/sound-server.service.wearable %{buildroot}%{_libdir}/systemd/system/sound-server.service
-ln -sf ../sound-server.service %{buildroot}%{_libdir}/systemd/system/sound.target.wants/sound-server.service
-mv %{buildroot}/usr/bin/mm_sound_testsuite %{buildroot}/opt/usr/devel/usr/bin
-%else
 install -d %{buildroot}%{_libdir}/systemd/system/multi-user.target.wants
 install -m0644 %{SOURCE1} %{buildroot}%{_libdir}/systemd/system/
-mv %{buildroot}%{_libdir}/systemd/system/sound-server.service.mobile %{buildroot}%{_libdir}/systemd/system/sound-server.service
 install -m0644 %{SOURCE2} %{buildroot}%{_libdir}/systemd/system/
 ln -sf ../sound-server.path %{buildroot}%{_libdir}/systemd/system/multi-user.target.wants/sound-server.path
 
-# FIXME: remove after systemd is in
-mkdir -p %{buildroot}%{_sysconfdir}/rc.d/rc3.d
-mkdir -p %{buildroot}%{_sysconfdir}/rc.d/rc4.d
-mkdir -p %{buildroot}%{_sysconfdir}/rc.d/rc5.d
-ln -s %{_sysconfdir}/rc.d/init.d/soundserver %{buildroot}%{_sysconfdir}/rc.d/rc3.d/S23soundserver
-ln -s %{_sysconfdir}/rc.d/init.d/soundserver %{buildroot}%{_sysconfdir}/rc.d/rc4.d/S23soundserver
-
-mkdir -p %{buildroot}/usr/share/license
-cp LICENSE.APLv2 %{buildroot}/usr/share/license/%{name}
-cp LICENSE.APLv2 %{buildroot}/usr/share/license/%{name}-devel
-cp LICENSE.APLv2 %{buildroot}/usr/share/license/%{name}-sdk-devel
-cp LICENSE.APLv2 %{buildroot}/usr/share/license/%{name}-tool
-
-%endif
-
-
 %post
 /sbin/ldconfig
-%if 0%{?tizen_profile_wearable}
+
 /usr/bin/vconftool set -t int memory/private/Sound/ASMReady 0 -g 29 -f -i -s system::vconf_multimedia
 /usr/bin/vconftool set -t double file/private/sound/volume/balance 0.0 -g 29 -f -s system::vconf_multimedia
 /usr/bin/vconftool set -t int file/private/sound/volume/muteall 0 -g 29 -f -s system::vconf_multimedia
-/usr/bin/vconftool set -t int memory/Sound/SoundVolAccumTime 0 -g 29 -f -i -s system::vconf_multimedia
-/usr/bin/vconftool set -t int memory/Sound/SoundEnableSafetyVol 0 -g 29 -f -i -s system::vconf_multimedia
+/usr/bin/vconftool set -t int memory/private/Sound/VoiceControlOn 0 -g 29 -f -i -s system::vconf_multimedia
 /usr/bin/vconftool set -t string memory/private/sound/booting "/usr/share/keysound/poweron.wav" -g 29 -f -i -s system::vconf_multimedia
+#SPK REC EAR BTS BTA DOCK HDMI MIR USB MDOCK
+#/usr/bin/vconftool set -t string file/private/sound/volume/system "09090909090909090909" -g 29 -f -s system::vconf_multimedia
+#/usr/bin/vconftool set -t string file/private/sound/volume/notification "11" -g 29 -f -s system::vconf_multimedia
+#/usr/bin/vconftool set -t string file/private/sound/volume/alarm "7" -g 29 -f -s system::vconf_multimedia
+#/usr/bin/vconftool set -t string file/private/sound/volume/ringtone "11" -g 29 -f -s system::vconf_multimedia
+#/usr/bin/vconftool set -t string file/private/sound/volume/media "07070907070707070707" -g 29 -f -s system::vconf_multimedia
+#/usr/bin/vconftool set -t string file/private/sound/volume/call "04040404040404040404" -g 29 -f -s system::vconf_multimedia
+#/usr/bin/vconftool set -t string file/private/sound/volume/voip "04040404040404040404" -g 29 -f -s system::vconf_multimedia
+#/usr/bin/vconftool set -t string file/private/sound/volume/voice "07070707070707070707" -g 29 -f -s system::vconf_multimedia
+#/usr/bin/vconftool set -t string file/private/sound/volume/fixed "00000000000000000000" -g 29 -f -s system::vconf_multimedia
+/usr/bin/vconftool set -t int memory/private/sound/PrimaryVolumetypeForce -1 -g 29 -f -i -s system::vconf_multimedia
+/usr/bin/vconftool set -t int memory/private/sound/PrimaryVolumetype -1 -g 29 -f -i -s system::vconf_multimedia
 /usr/bin/vconftool set -t int memory/private/sound/hdmisupport 0 -g 29 -f -i -s system::vconf_multimedia
+/usr/bin/vconftool set -t int memory/factory/loopback 0 -g 29 -f -i -s system::vconf_multimedia
+
 /usr/bin/vconftool set -t int file/private/sound/volume/system 9 -g 29 -f -s system::vconf_multimedia
 /usr/bin/vconftool set -t int file/private/sound/volume/notification 11 -g 29 -f -s system::vconf_multimedia
 /usr/bin/vconftool set -t int file/private/sound/volume/alarm 7 -g 29 -f -s system::vconf_multimedia
 /usr/bin/vconftool set -t int file/private/sound/volume/ringtone 11 -g 29 -f -s system::vconf_multimedia
 /usr/bin/vconftool set -t int file/private/sound/volume/media 7 -g 29 -f -s system::vconf_multimedia
 /usr/bin/vconftool set -t int file/private/sound/volume/call 4 -g 29 -f -s system::vconf_multimedia
-/usr/bin/vconftool set -t int file/private/sound/volume/voip 6 -g 29 -f -s system::vconf_multimedia
-/usr/bin/vconftool set -t int file/private/sound/volume/svoice 4 -g 29 -f -s system::vconf_multimedia
+/usr/bin/vconftool set -t int file/private/sound/volume/voip 4 -g 29 -f -s system::vconf_multimedia
+/usr/bin/vconftool set -t int file/private/sound/volume/voice 7 -g 29 -f -s system::vconf_multimedia
 /usr/bin/vconftool set -t int file/private/sound/volume/fixed 0 -g 29 -f -s system::vconf_multimedia
-/usr/bin/vconftool set -t int file/private/sound/volume/java 11 -g 29 -f -s system::vconf_multimedia
-%else
-/usr/bin/vconftool set -t int memory/Sound/ASMReady 0 -g 29 -f -i
 
-/usr/bin/vconftool set -t int file/private/sound/volume/system 5 -g 29 -f
-/usr/bin/vconftool set -t int file/private/sound/volume/notification 7 -g 29 -f
-/usr/bin/vconftool set -t int file/private/sound/volume/alarm 7 -g 29 -f
-/usr/bin/vconftool set -t int file/private/sound/volume/ringtone 13 -g 29 -f
-/usr/bin/vconftool set -t int file/private/sound/volume/media 7 -g 29 -f
-/usr/bin/vconftool set -t int file/private/sound/volume/call 7 -g 29 -f
-/usr/bin/vconftool set -t int file/private/sound/volume/voip 7 -g 29 -f
-/usr/bin/vconftool set -t int file/private/sound/volume/fixed 0 -g 29 -f
-/usr/bin/vconftool set -t int file/private/sound/volume/java 11 -g 29 -f
-%endif
 
 %postun -p /sbin/ldconfig
 
 
 %files
-%if 0%{?tizen_profile_wearable}
-%manifest wearable/libmm-sound.manifest
-%else
-%manifest mobile/libmm-sound.manifest
-%endif
+%manifest libmm-sound.manifest
 %defattr(-,root,root,-)
 %{_bindir}/sound_server
 %{_libdir}/libmmfsound.so.*
 %{_libdir}/libmmfsoundcommon.so.*
 %{_libdir}/libmmfkeysound.so.*
-%if 0%{?tizen_profile_wearable}
 %{_libdir}/libmmfbootsound.so.*
-%{_libdir}/libmmfpcmsound.so.*
-%endif
 %{_libdir}/libsoundplugintone.so*
 %{_libdir}/libsoundpluginwave.so*
 %{_libdir}/libsoundpluginkeytone.so*
-%if 0%{?tizen_profile_wearable}
+%if 0%{?tizen_audio_feature_ogg_enable}
 %{_libdir}/libsoundplugintremoloogg.so*
-%{_libdir}/soundplugins/libsoundplugintremoloogg.so
 %endif
 %{_libdir}/soundplugins/libsoundplugintone.so
 %{_libdir}/soundplugins/libsoundpluginwave.so
 %{_libdir}/soundplugins/libsoundpluginkeytone.so
+%if 0%{?tizen_audio_feature_ogg_enable}
+%{_libdir}/soundplugins/libsoundplugintremoloogg.so
+%endif
+%{_libdir}/systemd/system/multi-user.target.wants/sound-server.path
 %{_libdir}/systemd/system/sound-server.service
-%if 0%{?tizen_profile_wearable}
-%{_libdir}/systemd/system/sound.target.wants/sound-server.service
+%{_libdir}/systemd/system/sound-server.path
+/usr/share/sounds/sound-server/*
 %{_datadir}/license/%{name}
 %{_datadir}/license/libmm-sound-tool
-%else
-%attr(0755,root,root) %{_sysconfdir}/rc.d/init.d/soundserver
-%{_sysconfdir}/rc.d/rc3.d/S23soundserver
-%{_sysconfdir}/rc.d/rc4.d/S23soundserver
 /usr/share/sounds/sound-server/*
-%{_libdir}/systemd/system/multi-user.target.wants/sound-server.path
-%{_libdir}/systemd/system/sound-server.path
-/usr/share/license/%{name}
-%endif
+/opt/etc/dump.d/module.d/dump_audio.sh
 
 %files devel
 %defattr(-,root,root,-)
 %{_libdir}/libmmfkeysound.so
-%if 0%{?tizen_profile_wearable}
 %{_libdir}/libmmfbootsound.so
-%{_libdir}/libmmfpcmsound.so
-%endif
 %{_libdir}/libmmfsound.so
 %{_libdir}/libmmfsoundcommon.so
 %{_includedir}/mmf/mm_sound_private.h
-%if 0%{?tizen_profile_mobile}
-%{_includedir}/mmf/mm_sound_plugin.h
-%{_includedir}/mmf/mm_sound_plugin_hal.h
-/usr/share/license/%{name}-devel
-%endif
-
+%exclude %{_includedir}/mmf/mm_sound_pa_client.h
 
 %files sdk-devel
 %defattr(-,root,root,-)
 %{_includedir}/mmf/mm_sound.h
+%{_includedir}/mmf/mm_sound_pcm_async.h
+%exclude %{_includedir}/mmf/mm_sound_pa_client.h
 %{_libdir}/pkgconfig/mm-keysound.pc
-%{_libdir}/pkgconfig/mm-sound.pc
-%if 0%{?tizen_profile_wearable}
 %{_libdir}/pkgconfig/mm-bootsound.pc
-%{_libdir}/pkgconfig/mm-pcmsound.pc
-%else
-/usr/share/license/%{name}-sdk-devel
-%endif
-
+%{_libdir}/pkgconfig/mm-sound.pc
 
 %files tool
-%if 0%{?tizen_profile_wearable}
-%manifest wearable/libmm-sound-tool.manifest
-%endif
+%manifest libmm-sound-tool.manifest
 %defattr(-,root,root,-)
-%if 0%{?tizen_profile_wearable}
-/opt/usr/devel/usr/bin/mm_sound_testsuite
-%else
 %{_bindir}/mm_sound_testsuite
-/usr/share/license/%{name}-tool
-%endif

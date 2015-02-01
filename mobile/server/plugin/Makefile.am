@@ -1,1 +1,0 @@
-SUBDIRS = wav keytone tone

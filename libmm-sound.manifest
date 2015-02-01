@@ -1,0 +1,12 @@
+<manifest>
+	<define>
+		<domain name="sound_server"/>
+	</define>
+	<request>
+		<domain name="_"/>
+	</request>
+	<assign>
+		<filesystem path="/usr/bin/sound_server" label="sound_server" exec_label="sound_server"/>
+		<filesystem path="/opt/etc/dump.d/module.d/dump_audio.sh" label="_" exec_label="_"/>
+	</assign>
+</manifest>
