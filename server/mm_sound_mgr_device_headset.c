@@ -33,20 +33,23 @@
 #include <errno.h>
 
 #include "include/mm_sound_mgr_common.h"
+#include "include/mm_sound_thread_pool.h"
 #include "../include/mm_sound_common.h"
 
 #include <mm_error.h>
 #include <mm_debug.h>
 
-#include "include/mm_sound_mgr_dock.h"
+#include "include/mm_sound_mgr_device.h"
+#include "include/mm_sound_mgr_device_headset.h"
 #include "include/mm_sound_mgr_session.h"
 
-/******************************* Dock Code **********************************/
+/******************************* Headset Code **********************************/
 
+#include <stdio.h>
 #include <sys/types.h>
-#include <stdbool.h>
-#include <errno.h>
 #include <assert.h>
+#include <string.h>
+#include <pthread.h>
 
 #include "mm_ipc.h"
 #include "mm_sound_common.h"
@@ -55,43 +58,50 @@
 #include <vconf.h>
 #include <vconf-keys.h>
 
-static void dock_changed_cb(keynode_t* node, void* data)
+/* earjack status value */
+static void _earjack_status_changed_cb(keynode_t* node, void* data)
 {
-	int dock_available = 0;
+	int earjack_status = 0;
+	device_io_direction_e io_direction = DEVICE_IO_DIRECTION_OUT;
+	char *name = NULL;
 
 	/* Get actual vconf value */
-	vconf_get_int(VCONFKEY_SYSMAN_CRADLE_STATUS, &dock_available);
+	vconf_get_int(VCONFKEY_SYSMAN_EARJACK, &earjack_status);
+	debug_msg ("[%s] changed callback called, status=[%d]\n", vconf_keynode_get_name(node), earjack_status);
 
-	debug_msg ("[%s] changed callback called, key value is [%d]\n", vconf_keynode_get_name(node), dock_available);
-
-	/* Set device available based on vconf key value */
-	MMSoundMgrSessionSetDeviceAvailable (DEVICE_DOCK, dock_available, 0, NULL);
+	if (earjack_status == DEVICE_EARJACK_TYPE_SPK_WITH_MIC) {
+		io_direction = DEVICE_IO_DIRECTION_BOTH;
+		name = DEVICE_NAME_AUDIOJACK_4P;
+	} else {
+		io_direction = DEVICE_IO_DIRECTION_OUT;
+		name = DEVICE_NAME_AUDIOJACK_3P;
+	}
+	MMSoundMgrDeviceUpdateStatus (earjack_status ? DEVICE_UPDATE_STATUS_CONNECTED : DEVICE_UPDATE_STATUS_DISCONNECTED, DEVICE_TYPE_AUDIOJACK, io_direction, DEVICE_ID_AUTO, name, 0, NULL);
+	MMSoundMgrSessionSetDeviceAvailable (DEVICE_WIRED, earjack_status, earjack_status, NULL);
 }
 
-int _register_dock_status ()
+static int _register_earjack_status(void)
 {
 	/* set callback for vconf key change */
-	int ret = vconf_notify_key_changed(VCONFKEY_SYSMAN_CRADLE_STATUS, dock_changed_cb, NULL);
-	debug_msg ("vconf [%s] set ret = %d\n", VCONFKEY_SYSMAN_CRADLE_STATUS, ret);
+	int ret = vconf_notify_key_changed(VCONFKEY_SYSMAN_EARJACK, _earjack_status_changed_cb, NULL);
+	debug_msg ("vconf [%s] set ret = [%d]\n", VCONFKEY_SYSMAN_EARJACK, ret);
 	return ret;
 }
 
-
-int MMSoundMgrDockInit(void)
+int MMSoundMgrHeadsetInit(void)
 {
 	debug_enter("\n");
-
-	_register_dock_status ();
-
+	_register_earjack_status();
 	debug_leave("\n");
+
 	return MM_ERROR_NONE;
 }
 
-int MMSoundMgrDockFini(void)
+int MMSoundMgrHeadsetFini(void)
 {
 	debug_enter("\n");
-
 	debug_leave("\n");
+
 	return MM_ERROR_NONE;
 }
 

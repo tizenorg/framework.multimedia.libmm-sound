@@ -28,7 +28,7 @@
 int MMSoundMgrASMInit(void);
 int MMSoundMgrASMFini(void);
 
-int __asm_process_message (ASM_msg_lib_to_asm_t *asm_rcv_msg, ASM_msg_asm_to_lib_t *asm_ret_msg);
+int __asm_process_message (void *asm_rcv_msg, void *asm_ret_msg);
 
 
 #endif /* __MM_SOUND_MGR_ASM_H__ */

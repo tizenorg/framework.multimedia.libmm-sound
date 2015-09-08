@@ -25,17 +25,39 @@
 ///////////////////////////////////
 ////     MMSOUND VOLUME APIs
 ///////////////////////////////////
-#define VCONF_KEY_VOLUME_PREFIX				"db/private/sound/volume"
+#define VCONF_KEY_VOLUME_PREFIX				"file/private/sound/volume"
 #define VCONF_KEY_VOLUME_TYPE_SYSTEM		VCONF_KEY_VOLUME_PREFIX"/system"
 #define VCONF_KEY_VOLUME_TYPE_NOTIFICATION	VCONF_KEY_VOLUME_PREFIX"/notification"
 #define VCONF_KEY_VOLUME_TYPE_ALARM			VCONF_KEY_VOLUME_PREFIX"/alarm"
 #define VCONF_KEY_VOLUME_TYPE_RINGTONE		VCONF_KEY_VOLUME_PREFIX"/ringtone"
 #define VCONF_KEY_VOLUME_TYPE_MEDIA			VCONF_KEY_VOLUME_PREFIX"/media"
 #define VCONF_KEY_VOLUME_TYPE_CALL			VCONF_KEY_VOLUME_PREFIX"/call"
+#define VCONF_KEY_VOLUME_TYPE_VOIP			VCONF_KEY_VOLUME_PREFIX"/voip"
+#define VCONF_KEY_VOLUME_TYPE_VOICE		VCONF_KEY_VOLUME_PREFIX"/voice"
 #define VCONF_KEY_VOLUME_TYPE_ANDROID		VCONF_KEY_VOLUME_PREFIX"/fixed"
-#define VCONF_KEY_VOLUME_TYPE_JAVA			VCONF_KEY_VOLUME_PREFIX"/java"
 
-#define ASM_READY_KEY		"memory/Sound/ASMReady"
+#define VCONF_KEY_VOLUME_BALANCE			VCONF_KEY_VOLUME_PREFIX"/balance"
+#define VCONF_KEY_MUTE_ALL			        VCONF_KEY_VOLUME_PREFIX"/muteall"
+#define VCONF_KEY_MONO_AUDIO				VCONFKEY_SETAPPL_ACCESSIBILITY_MONO_AUDIO
+
+#define VCONFKEY_SOUND_PRIMARY_VOLUME_TYPE		"memory/private/sound/PrimaryVolumetype"
+#define VCONFKEY_SOUND_PRIMARY_VOLUME_TYPE_FORCE	"memory/private/sound/PrimaryVolumetypeForce"
+
+
+#ifndef _TIZEN_PUBLIC_
+#define VCONF_KEY_NOISE_REDUCTION			VCONFKEY_CALL_NOISE_REDUCTION_STATE_BOOL
+#define VCONF_KEY_EXTRA_VOLUME				VCONFKEY_CALL_EXTRA_VOLUME_STATE_BOOL
+#define VCONF_KEY_WBAMR						VCONFKEY_CALL_WBAMR_STATE_BOOL
+#define VCONF_KEY_VR_ENABLED				VCONFKEY_VOICE_CONTROL_ENABLED
+#define VCONF_KEY_VR_RINGTONE_ENABLED		VCONFKEY_VOICE_CONTROL_INCOMING_CALL_ENABLED
+#ifdef TIZEN_MICRO
+#define VCONF_KEY_VR_LEFTHAND_ENABLED		VCONFKEY_SETAPPL_PERFERED_ARM_LEFT_BOOL
+#endif
+#endif
+#define ASM_READY_KEY		"memory/private/Sound/ASMReady"
+#define VCONF_KEY_FMRADIO_RECORDING	"memory/private/Sound/FMRadioRecording"
+
+#define PA_READY "/tmp/.pa_ready"
 
 #define MMSOUND_ENTER_CRITICAL_SECTION(x_mutex) \
 switch ( pthread_mutex_lock( x_mutex ) ) \
@@ -77,6 +99,22 @@ default: \
 if( pthread_mutex_unlock( x_mutex ) ) { \
 	debug_error("mutex unlock failed\n"); \
 }
+
+#define MMSOUND_STRNCPY(dst,src,size)\
+do { \
+	if(src != NULL && dst != NULL && size > 0) {\
+		strncpy(dst,src,size); \
+		dst[size-1] = '\0';\
+	} else if(dst == NULL) {       \
+		debug_error("STRNCPY ERROR: Destination String is NULL\n"); \
+	}	\
+	else if(size <= 0) {      \
+		debug_error("STRNCPY ERROR: Destination String is NULL\n"); \
+	}	\
+	else {    \
+		debug_error("STRNCPY ERROR: Destination String is NULL\n"); \
+	}	\
+} while(0)
 
 #endif /* __MM_SOUND_COMMON_H__ */
 

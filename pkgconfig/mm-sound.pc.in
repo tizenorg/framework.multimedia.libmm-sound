@@ -5,7 +5,7 @@ includedir = @includedir@
 
 Name : mmfsound
 Description : Multimedia Framework Sound Library
-Requires : mm-keysound avsysaudio mm-session glib-2.0 vconf
+Requires : mm-keysound mm-bootsound mm-session glib-2.0 vconf
 Version : @VERSION@
 Libs : -L${libdir} -lmmfsound 
 Cflags : -I${includedir}/mmf 

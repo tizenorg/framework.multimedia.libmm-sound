@@ -18,7 +18,7 @@
  * limitations under the License.
  *
  */
- 
+
 #include <stdlib.h>
 #include <string.h>
 
@@ -28,6 +28,7 @@
 #include <dirent.h>
 #include <dlfcn.h>
 
+#include "../include/mm_sound_common.h"
 #include "include/mm_sound_plugin.h"
 #include <mm_error.h>
 #include <mm_debug.h>
@@ -219,7 +220,16 @@ static int _MMSoundPluginGetList(const char *plugdir ,char ***list)
 		ret = MM_ERROR_OUT_OF_STORAGE;
 		goto free_entry;
 	}
-	chdir(plugdir);
+	/* FIXME : need to handle error case */
+	if (chdir(plugdir) != 0) {
+		debug_error("chdir error\n");
+		if (temp) {
+			free (temp);
+			temp = NULL;
+		}
+		ret = MM_ERROR_INVALID_ARGUMENT;
+		goto free_entry;
+	}
 
 	for(item_idx = items; item_idx--; ) {
 		if(stat(entry[item_idx]->d_name, &finfo) < 0) {
@@ -233,7 +243,7 @@ static int _MMSoundPluginGetList(const char *plugdir ,char ***list)
 		}
 
 		debug_msg("item %d is %s\n", item_idx, entry[item_idx]->d_name);
-		
+
 		if (S_ISREG(finfo.st_mode)) {
 			temp[tn++] = __strcatdup(plugdir, entry[item_idx]->d_name);
 		}
@@ -245,7 +255,7 @@ free_entry:
 	}
 	free(entry);
 	return ret;
-}	
+}
 
 static int _MMSoundPluginDestroyList(char **list)
 {
@@ -260,7 +270,6 @@ static int _MMSoundPluginDestroyList(char **list)
 static char* __strcatdup(const char *str1, const char *str2)
 {
     char *dest = NULL;
-    char *source = NULL;
     int len = 0;
     len = strlen(str1) + strlen(str2) + 1;
     dest = (char*) malloc(len*sizeof(char));

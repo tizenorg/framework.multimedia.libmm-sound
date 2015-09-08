@@ -24,19 +24,59 @@
 #include <fcntl.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <unistd.h>
 #include <errno.h>
 
+#include <vconf.h>
+#include <vconf-keys.h>
 #include <mm_types.h>
 #include <mm_error.h>
 #include <mm_debug.h>
 #include "../include/mm_sound_private.h"
 #include "../include/mm_sound.h"
+#include "../include/mm_sound_common.h"
 #include "../include/mm_sound_utils.h"
 
-static mm_sound_route g_valid_route[] = { MM_SOUND_ROUTE_OUT_SPEAKER, MM_SOUND_ROUTE_OUT_WIRED_ACCESSORY, MM_SOUND_ROUTE_OUT_BLUETOOTH,
-											MM_SOUND_ROUTE_IN_MIC, MM_SOUND_ROUTE_IN_WIRED_ACCESSORY, MM_SOUND_ROUTE_IN_MIC_OUT_RECEIVER,
-											MM_SOUND_ROUTE_IN_MIC_OUT_SPEAKER, MM_SOUND_ROUTE_IN_MIC_OUT_HEADPHONE,
-											MM_SOUND_ROUTE_INOUT_HEADSET, MM_SOUND_ROUTE_INOUT_BLUETOOTH };
+static mm_sound_route g_valid_route[] = {
+		MM_SOUND_ROUTE_OUT_SPEAKER, MM_SOUND_ROUTE_OUT_RECEIVER, MM_SOUND_ROUTE_OUT_WIRED_ACCESSORY, MM_SOUND_ROUTE_OUT_BLUETOOTH_SCO, MM_SOUND_ROUTE_OUT_BLUETOOTH_A2DP,
+		MM_SOUND_ROUTE_OUT_DOCK, MM_SOUND_ROUTE_OUT_HDMI, MM_SOUND_ROUTE_OUT_MIRRORING, MM_SOUND_ROUTE_OUT_USB_AUDIO, MM_SOUND_ROUTE_OUT_MULTIMEDIA_DOCK,
+		MM_SOUND_ROUTE_IN_MIC, MM_SOUND_ROUTE_IN_WIRED_ACCESSORY, MM_SOUND_ROUTE_IN_MIC_OUT_RECEIVER,
+		MM_SOUND_ROUTE_IN_MIC_OUT_SPEAKER, MM_SOUND_ROUTE_IN_MIC_OUT_HEADPHONE,
+		MM_SOUND_ROUTE_INOUT_HEADSET, MM_SOUND_ROUTE_INOUT_BLUETOOTH
+};
+
+#define MM_SOUND_DEFAULT_VOLUME_SYSTEM			9
+#define MM_SOUND_DEFAULT_VOLUME_NOTIFICATION	11
+#define MM_SOUND_DEFAULT_VOLUME_ALARAM			7
+#define MM_SOUND_DEFAULT_VOLUME_RINGTONE		11
+#define MM_SOUND_DEFAULT_VOLUME_MEDIA			7
+#define MM_SOUND_DEFAULT_VOLUME_CALL			4
+#define MM_SOUND_DEFAULT_VOLUME_VOIP			4
+#define MM_SOUND_DEFAULT_VOLUME_VOICE			7
+#define MM_SOUND_DEFAULT_VOLUME_ANDROID			0
+
+static char *g_volume_vconf[VOLUME_TYPE_MAX] = {
+	VCONF_KEY_VOLUME_TYPE_SYSTEM,		/* VOLUME_TYPE_SYSTEM */
+	VCONF_KEY_VOLUME_TYPE_NOTIFICATION,	/* VOLUME_TYPE_NOTIFICATION */
+	VCONF_KEY_VOLUME_TYPE_ALARM,		/* VOLUME_TYPE_ALARM */
+	VCONF_KEY_VOLUME_TYPE_RINGTONE,		/* VOLUME_TYPE_RINGTONE */
+	VCONF_KEY_VOLUME_TYPE_MEDIA,		/* VOLUME_TYPE_MEDIA */
+	VCONF_KEY_VOLUME_TYPE_CALL,			/* VOLUME_TYPE_CALL */
+	VCONF_KEY_VOLUME_TYPE_VOIP,			/* VOLUME_TYPE_VOIP */
+	VCONF_KEY_VOLUME_TYPE_VOICE,		/* VOLUME_TYPE_VOICE */
+	VCONF_KEY_VOLUME_TYPE_ANDROID		/* VOLUME_TYPE_FIXED */
+};
+static char *g_volume_str[VOLUME_TYPE_MAX] = {
+	"SYSTEM",
+	"NOTIFICATION",
+	"ALARM",
+	"RINGTONE",
+	"MEDIA",
+	"CALL",
+	"VOIP",
+	"VOICE",
+	"FIXED",
+};
 
 EXPORT_API
 int _mm_sound_get_valid_route_list(mm_sound_route **route_list)
@@ -67,7 +107,7 @@ void _mm_sound_get_devices_from_route(mm_sound_route route, mm_sound_device_in *
 {
 	if (device_in && device_out) {
 		*device_in = route & 0x00FF;
-		*device_out = route & 0xFF00;
+		*device_out = route & 0xFFF00;
 	}
 }
 
@@ -92,5 +132,237 @@ bool _mm_sound_check_hibernation (const char *path)
 	return true;
 }
 
+EXPORT_API
+int _mm_sound_volume_add_callback(volume_type_t type, void *func, void* user_data)
+{
+	if (vconf_notify_key_changed(g_volume_vconf[type], func, user_data)) {
+		debug_error ("vconf_notify_key_changed failed..\n");
+		return MM_ERROR_SOUND_INTERNAL;
+	}
 
+	return MM_ERROR_NONE;
+}
 
+EXPORT_API
+int _mm_sound_volume_remove_callback(volume_type_t type, void *func)
+{
+	if (vconf_ignore_key_changed(g_volume_vconf[type], func)) {
+		debug_error ("vconf_ignore_key_changed failed..\n");
+		return MM_ERROR_SOUND_INTERNAL;
+	}
+
+	return MM_ERROR_NONE;
+}
+
+EXPORT_API
+int _mm_sound_muteall_add_callback(void *func)
+{
+	if (vconf_notify_key_changed(VCONF_KEY_MUTE_ALL, func, NULL)) {
+		debug_error ("vconf_notify_key_changed failed..\n");
+		return MM_ERROR_SOUND_INTERNAL;
+	}
+
+	return MM_ERROR_NONE;
+}
+
+EXPORT_API
+int _mm_sound_muteall_remove_callback(void *func)
+{
+	if (vconf_ignore_key_changed(VCONF_KEY_MUTE_ALL, func)) {
+		debug_error ("vconf_ignore_key_changed failed..\n");
+		return MM_ERROR_SOUND_INTERNAL;
+	}
+
+	return MM_ERROR_NONE;
+}
+
+EXPORT_API
+int _mm_sound_volume_get_value_by_type(volume_type_t type, unsigned int *value)
+{
+	int ret = MM_ERROR_NONE;
+	int vconf_value = 0;
+
+	/* Get volume value from VCONF */
+	if (vconf_get_int(g_volume_vconf[type], &vconf_value)) {
+		debug_error ("vconf_get_int(%s) failed..\n", g_volume_vconf[type]);
+		return MM_ERROR_SOUND_INTERNAL;
+	}
+
+	*value = vconf_value;
+	if (ret == MM_ERROR_NONE)
+		debug_log("volume_get_value %s %d",  g_volume_str[type], *value);
+
+	return ret;
+}
+
+EXPORT_API
+int _mm_sound_volume_set_value_by_type(volume_type_t type, unsigned int value)
+{
+	int ret = MM_ERROR_NONE;
+	int vconf_value = 0;
+
+	vconf_value = value;
+	debug_log("volume_set_value %s %d",  g_volume_str[type], value);
+
+	/* Set volume value to VCONF */
+	if ((ret = vconf_set_int(g_volume_vconf[type], vconf_value)) != 0) {
+		debug_error ("vconf_set_int(%s) failed..ret[%d]\n", g_volume_vconf[type], ret);
+		if (ret == -EPERM || ret == -EACCES)
+			return MM_ERROR_SOUND_PERMISSION_DENIED;
+		else
+			return MM_ERROR_SOUND_INTERNAL;
+	}
+	return ret;
+}
+
+EXPORT_API
+int _mm_sound_volume_set_balance(float balance)
+{
+	/* Set balance value to VCONF */
+	if (vconf_set_dbl(VCONF_KEY_VOLUME_BALANCE, balance)) {
+		debug_error ("vconf_set_dbl(%s) failed..\n", VCONF_KEY_VOLUME_BALANCE);
+		return MM_ERROR_SOUND_INTERNAL;
+	}
+
+	return MM_ERROR_NONE;
+}
+
+EXPORT_API
+int _mm_sound_volume_get_balance(float *balance)
+{
+	double balance_value = 0;
+
+	/* Get balance value from VCONF */
+	if (vconf_get_dbl(VCONF_KEY_VOLUME_BALANCE, &balance_value)) {
+		debug_error ("vconf_get_int(%s) failed..\n", VCONF_KEY_VOLUME_BALANCE);
+		return MM_ERROR_SOUND_INTERNAL;
+	}
+
+	*balance = balance_value;
+	debug_log("balance get value [%s]=[%f]", VCONF_KEY_VOLUME_BALANCE, *balance);
+
+	return MM_ERROR_NONE;
+}
+
+EXPORT_API
+int _mm_sound_set_muteall(int muteall)
+{
+	/* Set muteall value to VCONF */
+	if (vconf_set_int(VCONF_KEY_MUTE_ALL, muteall)) {
+		debug_error ("vconf_set_int(%s) failed..\n", VCONF_KEY_MUTE_ALL);
+		return MM_ERROR_SOUND_INTERNAL;
+	}
+
+	return MM_ERROR_NONE;
+}
+
+EXPORT_API
+int _mm_sound_get_muteall(int *muteall)
+{
+	int muteall_value = 0;
+
+	/* Get muteall value from VCONF */
+	if (vconf_get_int(VCONF_KEY_MUTE_ALL, &muteall_value)) {
+		debug_error ("vconf_get_int(%s) failed..\n", VCONF_KEY_MUTE_ALL);
+		return MM_ERROR_SOUND_INTERNAL;
+	}
+
+	*muteall = muteall_value;
+	debug_log("muteall get value [%s]=[%d]", VCONF_KEY_MUTE_ALL, *muteall);
+
+	return MM_ERROR_NONE;
+}
+
+EXPORT_API
+int __mm_sound_set_stereo_to_mono(int ismono)
+{
+	/* Set ismono value to VCONF */
+	if (vconf_set_int(VCONF_KEY_MONO_AUDIO, ismono)) {
+		debug_error ("vconf_set_int(%s) failed..\n", VCONF_KEY_MONO_AUDIO);
+		return MM_ERROR_SOUND_INTERNAL;
+	}
+
+	return MM_ERROR_NONE;
+}
+
+EXPORT_API
+int __mm_sound_get_stereo_to_mono(int *ismono)
+{
+	int ismono_value = 0;
+
+	/* Get ismono value from VCONF */
+	if (vconf_get_int(VCONF_KEY_MONO_AUDIO, &ismono_value)) {
+		debug_error ("vconf_get_int(%s) failed..\n", VCONF_KEY_MONO_AUDIO);
+		return MM_ERROR_SOUND_INTERNAL;
+	}
+
+	*ismono = ismono_value;
+	debug_log("ismono get value [%s]=[%d]", VCONF_KEY_MONO_AUDIO, *ismono);
+
+	return MM_ERROR_NONE;
+}
+
+EXPORT_API
+int _mm_sound_get_earjack_type (int *type)
+{
+	int earjack_status = 0;
+
+	if (type == NULL) {
+		debug_error ("invalid parameter!!!");
+		return MM_ERROR_INVALID_ARGUMENT;
+	}
+
+	/* Get actual vconf value */
+	vconf_get_int(VCONFKEY_SYSMAN_EARJACK, &earjack_status);
+	debug_msg ("[%s] get status=[%d]\n", VCONFKEY_SYSMAN_EARJACK, earjack_status);
+
+	*type = (earjack_status >= 0)? earjack_status : VCONFKEY_SYSMAN_EARJACK_REMOVED;
+
+	return MM_ERROR_NONE;
+}
+
+EXPORT_API
+int _mm_sound_get_dock_type (int *type)
+{
+	int dock_status = 0;
+
+	if (type == NULL) {
+		debug_error ("invalid parameter!!!");
+		return MM_ERROR_INVALID_ARGUMENT;
+	}
+
+	/* Get actual vconf value */
+	vconf_get_int(VCONFKEY_SYSMAN_CRADLE_STATUS, &dock_status);
+	debug_msg ("[%s] get dock status=[%d]\n", VCONFKEY_SYSMAN_CRADLE_STATUS, dock_status);
+
+	*type = dock_status;
+
+	return MM_ERROR_NONE;
+}
+
+EXPORT_API
+bool _mm_sound_is_recording (void)
+{
+	int capture_status = 0;
+	bool result = false;
+
+	/* Check whether audio is recording */
+	vconf_get_int(VCONFKEY_RECORDER_STATE, &capture_status);
+	if(capture_status == VCONFKEY_RECORDER_STATE_RECORDING) {
+		result = true;
+		debug_msg ("capture status=%d, result=%d", capture_status, result);
+	}
+	return result;
+}
+
+EXPORT_API
+bool _mm_sound_is_mute_policy (void)
+{
+	int setting_sound_status = true;
+
+	/* If sound is mute mode, force ringtone/notification path to headset */
+	vconf_get_bool(VCONFKEY_SETAPPL_SOUND_STATUS_BOOL, &setting_sound_status);
+	debug_log ("[%s] setting_sound_status=%d\n", VCONFKEY_SETAPPL_SOUND_STATUS_BOOL, setting_sound_status);
+
+	return !setting_sound_status;
+}

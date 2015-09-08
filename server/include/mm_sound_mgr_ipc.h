@@ -32,11 +32,16 @@ do { \
 	sound_msg.msgid = x_msgid; \
 } while(0)
 
+#define FREEZE_COMMAND_EXCLUDE	"exclude"
+#define FREEZE_COMMAND_INCLUDE	"include"
+#define FREEZE_COMMAND_WAKEUP	"wakeup"
+
 int MMSoundMgrIpcInit(void);
 int MMSoundMgrIpcFini(void);
 int MMSoundMgrIpcReady(void);
 
 int _MMIpcCBSndMsg(mm_ipc_msg_t *msg);
+int __mm_sound_mgr_ipc_freeze_send (char* command, int pid);
 
 #endif /* __MM_SOUND_MGR_H__ */
 

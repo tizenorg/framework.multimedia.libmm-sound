@@ -52,7 +52,7 @@ static void __ThreadWork(gpointer data, gpointer user_data)
 	THREAD_INFO* info = (THREAD_INFO*)data;
 	if (info) {
 		 if (info->func) {
-				debug_msg ("Calling [%p] with param [%p]\n", info->func, info->param);
+				debug_log ("Calling [%p] with param [%p]\n", info->func, info->param);
 				info->func (info->param);
 		 } else {
 			 	debug_warning ("No func to call....\n");
@@ -60,7 +60,7 @@ static void __ThreadWork(gpointer data, gpointer user_data)
 
 		 /* Info was allocated by MMSoundThreadPoolRun(). 
 			The actual content of info should be  freed whether inside func or outside (if handle) */
-		 debug_msg ("free [%p]\n", info);
+		 debug_log ("free [%p]\n", info);
 		 free (info);
 		 info = NULL;
 	} else {
@@ -76,12 +76,12 @@ int MMSoundThreadPoolDump(int fulldump)
 	}
 
 	if (fulldump) {
-		debug_msg ("##### [ThreadPool] max threads=[%d], max unused=[%d], max idle time=[%d]\n",
+		debug_log ("##### [ThreadPool] max threads=[%d], max unused=[%d], max idle time=[%d]\n",
 				g_thread_pool_get_max_threads (g_pool),
 				g_thread_pool_get_max_unused_threads(),
 				g_thread_pool_get_max_idle_time()	);
 	}
-	debug_msg ("***** [ThreadPool] running=[%d], unused=[%d]\n",
+	debug_log ("***** [ThreadPool] running=[%d], unused=[%d]\n",
 			g_thread_pool_get_num_threads (g_pool),
 			g_thread_pool_get_num_unused_threads() );
 
@@ -113,7 +113,7 @@ int MMSoundThreadPoolInit()
 	   This dummy thread will be remained unused as soon as it started */	 
 	debug_msg ("run threads to reserve minimum thread\n");
 	for (i=0; i<MAX_UNUSED_THREADS_IN_THREADPOOL; i++) {
-		MMSoundThreadPoolRun (i, __DummyWork);
+		MMSoundThreadPoolRun ((void *)i, __DummyWork);
 	}
 
 	MMSoundThreadPoolDump(TRUE);
@@ -134,13 +134,14 @@ int MMSoundThreadPoolRun(void *param, void (*func)(void*))
 	if (thread_info) {
 		thread_info->func = func;
 		thread_info->param = param;
-		debug_msg ("alloc thread_info = %p\n", thread_info);
-	
+		debug_log ("alloc thread_info = %p\n", thread_info);
+
 		/* Add thread to queue of thread pool */
 		g_thread_pool_push (g_pool, thread_info, &error);
 		if (error) {
 			debug_error ("g_thread_pool_push failed : %s\n", error->message);
 			g_error_free (error);
+			free(thread_info);
 			return MM_ERROR_SOUND_INTERNAL;
 		}
 	} else {
@@ -148,7 +149,7 @@ int MMSoundThreadPoolRun(void *param, void (*func)(void*))
 		return MM_ERROR_SOUND_INTERNAL;
 	}
 
-    return MM_ERROR_NONE;
+	return MM_ERROR_NONE;
 }
 
 int MMSoundThreadPoolFini(void)

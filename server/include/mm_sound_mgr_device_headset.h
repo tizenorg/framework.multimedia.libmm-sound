@@ -26,8 +26,6 @@
 
 int MMSoundMgrHeadsetInit(void);
 int MMSoundMgrHeadsetFini(void);
-int MMSoundMgrHeadsetGetType (int *type);
-
 
 #endif /* __MM_SOUND_MGR_HEADSET_H__ */
 

@@ -6,14 +6,11 @@ libsoundplugintone_la_CFLAGS  = \
 				$(MMCOMMON_CFLAGS) \
 				-I$(srcdir)/../../../../common/include \
 				-I$(srcdir)/../../../include \
-				$(MMLOGSVR_CFLAGS) -DMMF_LOG_OWNER=0x020 -DMMF_DEBUG_PREFIX=\"MMF-SOUND\"
+				$(MMLOGSVR_CFLAGS) -DMMF_LOG_OWNER=0x002 -DMMF_DEBUG_PREFIX=\"MMF-SOUND\"
 
 libsoundplugintone_la_LIBADD  = \
 				$(MMCOMMON_LIBS) \
 				$(MMLOGSVR_LIBS)
-
-libsoundplugintone_la_CFLAGS += $(AVSYSTEM_CFLAGS)
-libsoundplugintone_la_LIBADD += $(AVSYSTEM_LIBS)
 
 install-exec-hook:
 	mkdir -p $(DESTDIR)$(libdir)/soundplugins

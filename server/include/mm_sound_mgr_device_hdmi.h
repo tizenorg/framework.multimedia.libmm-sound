@@ -19,14 +19,12 @@
  *
  */
 
-#ifndef __MM_SOUND_MGR_DOCK_H__
-#define __MM_SOUND_MGR_DOCK_H__
+#ifndef __MM_SOUND_MGR_HDMI_H__
+#define __MM_SOUND_MGR_HDMI_H__
 
-#include "../../include/mm_ipc.h"
-
-int MMSoundMgrDockInit(void);
-int MMSoundMgrDockFini(void);
+int MMSoundMgrHdmiInit(void);
+int MMSoundMgrHdmiFini(void);
 
 
-#endif /* __MM_SOUND_MGR_DOCK_H__ */
+#endif /* __MM_SOUND_MGR_HDMI_H__ */
 

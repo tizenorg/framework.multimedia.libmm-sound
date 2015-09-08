@@ -1,6 +1,6 @@
 AC_PREREQ(2.52)
 
-AC_INIT([avsystem], [1.0])
+AC_INIT([libmm-sound], [1.0])
 AM_INIT_AUTOMAKE([-Wall -Werror foreign])
 AC_CONFIG_HEADERS([config.h:config.hin])
 
@@ -22,10 +22,6 @@ AC_PROG_GCC_TRADITIONAL
 AC_PROG_LIBTOOL
 
 # Checks for libraries.
-PKG_CHECK_MODULES(AVSYSTEM, avsysaudio)
-AC_SUBST(AVSYSTEM_CFLAGS)
-AC_SUBST(AVSYSTEM_LIBS)
-
 PKG_CHECK_MODULES(MMCOMMON, mm-common)
 AC_SUBST(MMCOMMON_CFLAGS)
 AC_SUBST(MMCOMMON_LIBS)
@@ -51,13 +47,42 @@ PKG_CHECK_MODULES(GLIB2, glib-2.0 gthread-2.0)
 AC_SUBST(GLIB2_CFLAGS)
 AC_SUBST(GLIB2_LIBS)
 
+PKG_CHECK_MODULES(GIO, gio-2.0)
+AC_SUBST(GIO_CFLAGS)
+AC_SUBST(GIO_LIBS)
+
 PKG_CHECK_MODULES(VCONF, vconf)
 AC_SUBST(VCONF_CFLAGS)
 AC_SUBST(VCONF_LIBS)
 
-PKG_CHECK_MODULES(HEYNOTI, heynoti)
-AC_SUBST(HEYNOTI_CFLAGS)
-AC_SUBST(HEYNOTI_LIBS)
+AC_ARG_ENABLE(bluetooth, AC_HELP_STRING([--enable-bluetooth], [enable bluetooth client]),
+[
+ case "${enableval}" in
+	 yes) SUPPORT_BT_SCO=yes ;;
+	 no)  SUPPORT_BT_SCO=no ;;
+	 *)   AC_MSG_ERROR(bad value ${enableval} for --enable-bluetooth) ;;
+ esac
+ ],[SUPPORT_BT_SCO=no])
+if test "x$SUPPORT_BT_SCO" = "xyes"; then
+PKG_CHECK_MODULES(BLUETOOTH, capi-network-bluetooth)
+AC_SUBST(BLUETOOTH_CFLAGS)
+AC_SUBST(BLUETOOTH_LIBS)
+fi
+AM_CONDITIONAL([SUPPORT_BT_SCO], [test "x$SUPPORT_BT_SCO" = "xyes"])
+
+AC_ARG_ENABLE(hfp, AC_HELP_STRING([--enable-hfp], [enable hfp api]),
+[
+ case "${enableval}" in
+	 yes) USE_HFP=yes ;;
+	 no)  USE_HFP=no ;;
+	 *)   AC_MSG_ERROR(bad value ${enableval} for --enable-hfp) ;;
+ esac
+ ],[USE_HFP=no])
+if test "x$USE_HFP" = "xyes"; then
+PKG_CHECK_MODULES(BLUETOOTH_API, bluetooth-api)
+AC_SUBST(BLUETOOTH_API_CFLAGS)
+AC_SUBST(BLUETOOTH_API_LIBS)
+fi
 
 AC_ARG_ENABLE(pulse, AC_HELP_STRING([--enable-pulse], [enable pulseaudio client]),
 [
@@ -68,30 +93,29 @@ AC_ARG_ENABLE(pulse, AC_HELP_STRING([--enable-pulse], [enable pulseaudio client]
  esac
  ],[USE_PULSE=no])
 if test "x$USE_PULSE" = "xyes"; then
-PKG_CHECK_MODULES(PULSE, libpulse)
-AC_SUBST(PULSE_CFLAGS)
-AC_SUBST(PULSE_LIBS)
+PKG_CHECK_MODULES(PASIMPLE, libpulse-simple)
+AC_SUBST(PASIMPLE_CFLAGS)
+AC_SUBST(PASIMPLE_LIBS)
+PKG_CHECK_MODULES(PA, libpulse)
+AC_SUBST(PA_CFLAGS)
+AC_SUBST(PA_LIBS)
 fi
 AM_CONDITIONAL([USE_PULSE], [test "x$USE_PULSE" = "xyes"])
 
-dnl use security --------------------------------------------------------------------------
-AC_ARG_ENABLE(security, AC_HELP_STRING([--enable-security], [using security]),
+AC_ARG_ENABLE(ogg, AC_HELP_STRING([--enable-ogg], [enable ogg client]),
 [
  case "${enableval}" in
-    yes) USE_SECURITY=yes ;;
-     no)  USE_SECURITY=no ;;
-      *)   AC_MSG_ERROR(bad value ${enableval} for --enable-security) ;;
+	 yes) OGG_SUPPORT=yes ;;
+	 no)  OGG_SUPPORT=no ;;
+	 *)   AC_MSG_ERROR(bad value ${enableval} for --enable-ogg) ;;
  esac
- ],[USE_SECURITY=no])
-
-if test "x$USE_SECURITY" = "xyes"; then
-PKG_CHECK_MODULES(SECURITY, security-server)
-AC_SUBST(SECURITY_CFLAGS)
-AC_SUBST(SECURITY_LIBS)
+ ],[OGG_SUPPORT=no])
+if test "x$OGG_SUPPORT" = "xyes"; then
+PKG_CHECK_MODULES(TREMOLO, libtremolo)
+AC_SUBST(TREMOLO_CFLAGS)
+AC_SUBST(TREMOLO_LIBS)
 fi
-AM_CONDITIONAL(USE_SECURITY, test "x$USE_SECURITY" = "xyes")
-dnl end --------------------------------------------------------------------
-
+AM_CONDITIONAL([OGG_SUPPORT], [test "x$OGG_SUPPORT" = "xyes"])
 
 # Checks for header files.
 AC_HEADER_STDC
@@ -116,12 +140,13 @@ Makefile
 server/Makefile
 server/plugin/Makefile
 server/plugin/wav/Makefile
+server/plugin/ogg/Makefile
 server/plugin/keytone/Makefile
 server/plugin/tone/Makefile
 pkgconfig/Makefile
 pkgconfig/mm-sound.pc
 pkgconfig/mm-keysound.pc
+pkgconfig/mm-bootsound.pc
 testsuite/Makefile
-init/Makefile
 ])
 AC_OUTPUT

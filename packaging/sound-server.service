@@ -1,0 +1,12 @@
+[Unit]
+Description=Start the sound profile service
+
+[Service]
+ExecStart=/usr/bin/sound_server -S
+ExecStop=/usr/bin/sound_server --poweroff
+Restart=always
+RestartSec=0
+MemoryLimit=50M
+
+[Install]
+WantedBy=tizen-system.target

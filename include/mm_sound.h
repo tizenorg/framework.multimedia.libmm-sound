@@ -282,19 +282,49 @@
  * Enumerations of Volume type.
  */
 
-typedef enum
-{
+typedef enum {
 	VOLUME_TYPE_SYSTEM,				/**< System volume type */
 	VOLUME_TYPE_NOTIFICATION,		/**< Notification volume type */
 	VOLUME_TYPE_ALARM,				/**< Alarm volume type */
 	VOLUME_TYPE_RINGTONE,			/**< Ringtone volume type */
 	VOLUME_TYPE_MEDIA,				/**< Media volume type */
 	VOLUME_TYPE_CALL,				/**< Call volume type */
+	VOLUME_TYPE_VOIP,				/**< VOIP volume type */
+	VOLUME_TYPE_VOICE,				/**< VOICE volume type */
 	VOLUME_TYPE_FIXED,				/**< Volume type for fixed acoustic level */
-	VOLUME_TYPE_EXT_JAVA,			/**< External system volume for Java */
 	VOLUME_TYPE_MAX,				/**< Volume type count */
 	VOLUME_TYPE_EXT_ANDROID = VOLUME_TYPE_FIXED,		/**< External system volume for Android */
 } volume_type_t;
+
+typedef enum {
+	VOLUME_GAIN_DEFAULT		= 0,
+	VOLUME_GAIN_DIALER		= 1<<8,
+	VOLUME_GAIN_TOUCH		= 2<<8,
+	VOLUME_GAIN_AF			= 3<<8,
+	VOLUME_GAIN_SHUTTER1	= 4<<8,
+	VOLUME_GAIN_SHUTTER2	= 5<<8,
+	VOLUME_GAIN_CAMCORDING	= 6<<8,
+	VOLUME_GAIN_MIDI		= 7<<8,
+	VOLUME_GAIN_BOOTING		= 8<<8,
+	VOLUME_GAIN_VIDEO		= 9<<8,
+	VOLUME_GAIN_TTS			= 10<<8,
+} volume_gain_t;
+
+/**
+ * @brief Enumerations of supporting source_type
+ */
+typedef enum {
+    SUPPORT_SOURCE_TYPE_DEFAULT,
+    SUPPORT_SOURCE_TYPE_MIRRORING,
+    SUPPORT_SOURCE_TYPE_VOICECONTROL,
+    SUPPORT_SOURCE_TYPE_SVR,
+    SUPPORT_SOURCE_TYPE_VIDEOCALL,
+    SUPPORT_SOURCE_TYPE_VOICERECORDING,
+    SUPPORT_SOURCE_TYPE_VOIP, /* Supporting VoIP source*/
+    SUPPORT_SOURCE_TYPE_CALL_FORWARDING,
+    SUPPORT_SOURCE_TYPE_FMRADIO,
+    SUPPORT_SOURCE_TYPE_LOOPBACK,
+} mm_sound_source_type_e;
 
 /**
  * Volume change callback function type.
@@ -306,6 +336,31 @@ typedef enum
  * @see		mm_sound_volume_add_callback mm_sound_volume_remove_callback
  */
 typedef void (*volume_callback_fn)(void* user_data);
+
+/**
+ * Active volume change callback function type.
+ *
+ * @param	type			[in]	The sound type of changed volume
+ * @param	volume			[in]	The new volume value
+ * @param	user_data		[in]	Argument passed when callback has called
+ *
+ * @return	No return value
+ * @remark	None.
+ * @see		mm_sound_add_volume_changed_callback mm_sound_remove_volume_changed_callback
+ */
+typedef void (*mm_sound_volume_changed_cb) (volume_type_t type, unsigned int volume, void *user_data);
+
+
+/**
+ * Muteall state change callback function type.
+ *
+ * @param	user_data		[in]	Argument passed when callback has called
+ *
+ * @return	No return value
+ * @remark	None.
+ * @see		mm_sound_muteall_add_callback mm_sound_muteall_remove_callback
+ */
+typedef void (*muteall_callback_fn)(void* user_data);
 
 /**
  * This function is to retrieve number of volume level.
@@ -397,6 +452,7 @@ int volume_control()
  * @endcode
  */
 int mm_sound_volume_add_callback(volume_type_t type, volume_callback_fn func, void* user_data);
+int mm_sound_add_volume_changed_callback(mm_sound_volume_changed_cb func, void* user_data);
 
 
 /**
@@ -441,6 +497,93 @@ int volume_callback()
  */
 int mm_sound_volume_remove_callback(volume_type_t type);
 
+/**
+ * This function is to remove volume change callback.
+ *
+ * @return 	This function returns MM_ERROR_NONE on success, or negative value
+ * 			with error code.
+ **/
+int mm_sound_remove_volume_changed_callback(void);
+
+/**
+ * This function is to add muteall changed callback.
+ *
+ * @param	func			[in]	callback function pointer
+ * @param	user_data		[in]	user data passing to callback function
+ *
+ * @return 	This function returns MM_ERROR_NONE on success, or negative value
+ *			with error code.
+ * @see		muteall_callback_fn
+ * @code
+void _muteall_callback(void *data)
+{
+	int  muteall;
+
+	mm_sound_get_muteall(&muteall);
+	g_print("Muteall Callback Runs :::: muteall value = %d\n", muteall);
+}
+
+int muteall_callback()
+{
+	int ret = 0;
+
+	ret = mm_sound_muteall_add_callback( _muteall_callback);
+
+	if ( MM_ERROR_NONE != ret)
+	{
+		printf("Can not add callback\n");
+	}
+	else
+	{
+		printf("Add callback success\n");
+	}
+
+	return 0;
+}
+
+ * @endcode
+ */
+int mm_sound_muteall_add_callback(muteall_callback_fn func);
+
+
+/**
+ * This function is to remove muteall changed callback.
+ *
+ * @param	func			[in]	callback function pointer
+ *
+ * @return 	This function returns MM_ERROR_NONE on success, or negative value
+ *			with error code.
+ * @remark	None.
+ * @post	Callback function will not be called anymore.
+ * @see		muteall_callback_fn
+ * @code
+void _muteall_callback(void *data)
+{
+	printf("Callback function\n");
+}
+
+int muteall_callback()
+{
+	int ret = 0;
+
+	mm_sound_muteall_add_callback( _muteall_callback);
+
+	ret = mm_sound_muteall_remove_callback(_muteall_callback);
+	if ( MM_ERROR_NONE == ret)
+	{
+		printf("Remove callback success\n");
+	}
+	else
+	{
+		printf("Remove callback failed\n");
+	}
+
+	return ret;
+}
+
+ * @endcode
+ */
+int mm_sound_muteall_remove_callback(muteall_callback_fn func);
 
 /**
  * This function is to set volume level of certain volume type.
@@ -478,6 +621,24 @@ else
  * @endcode
  */
 int mm_sound_volume_set_value(volume_type_t type, const unsigned int value);
+
+
+
+
+
+
+/**
+ * This function is to set all volume type to mute or unmute.
+ *
+ * @param	muteall			[in]	the switch to control  mute or unmute.
+ *
+ * @return 	This function returns MM_ERROR_NONE on success, or negative value
+ *			with error code.
+ * @remark	None.
+ * @pre		None.
+ * @post	None.
+ */
+int mm_sound_mute_all(int muteall);
 
 
 
@@ -622,7 +783,7 @@ int main()
 }
  * @endcode
  */
-int mm_sound_volume_primary_type_clear();
+int mm_sound_volume_primary_type_clear(void);
 
 
 
@@ -665,6 +826,47 @@ default:
  */
 int mm_sound_volume_get_current_playing_type(volume_type_t *type);
 
+int mm_sound_volume_set_balance (float balance);
+
+int mm_sound_volume_get_balance (float *balance);
+
+int mm_sound_set_muteall (int muteall);
+
+int mm_sound_get_muteall (int *muteall);
+
+int mm_sound_set_stereo_to_mono (int ismono);
+
+int mm_sound_get_stereo_to_mono (int *ismono);
+
+int mm_sound_set_call_mute(volume_type_t type, int mute);
+
+int mm_sound_get_call_mute(volume_type_t type, int *mute);
+
+int mm_sound_set_factory_loopback_test(int loopback);
+
+int mm_sound_get_factory_loopback_test(int *loopback);
+
+typedef enum {
+	MM_SOUND_FACTORY_MIC_TEST_STATUS_OFF = 0,
+	MM_SOUND_FACTORY_MIC_TEST_STATUS_MAIN_MIC,
+	MM_SOUND_FACTORY_MIC_TEST_STATUS_SUB_MIC,
+	MM_SOUND_FACTORY_MIC_TEST_STATUS_NUM,
+} mm_sound_factory_mic_test_status_t;/* device in for factory mic test */
+
+int mm_sound_set_factory_mic_test(mm_sound_factory_mic_test_status_t mic_test);
+
+int mm_sound_get_factory_mic_test(mm_sound_factory_mic_test_status_t *mic_test);
+
+typedef enum {
+	MMSOUND_DHA_OFF,
+	MMSOUND_DHA_SOFT_SOUND,
+	MMSOUND_DHA_CLEAR_SOUND,
+	MMSOUND_DHA_PERSNOL_LEFT,
+	MMSOUND_DHA_PERSNOL_RIGHT,
+	MMSOUND_DHA_INVALID,
+} MMSoundDHAMode_t;
+
+
 
 /*
  * MMSound PCM APIs
@@ -674,8 +876,7 @@ typedef void*	MMSoundPcmHandle_t;	/**< MMsound PCM handle type */
 /**
  * Enumerations of Format used in MMSoundPcm operation.
  */
-typedef enum
-{
+typedef enum {
 	MMSOUND_PCM_U8 = 0x70, /**< unsigned 8bit audio */
 	MMSOUND_PCM_S16_LE,   /**< signed 16bit audio */
 } MMSoundPcmFormat_t;
@@ -688,15 +889,42 @@ typedef enum {
 	MMSOUND_PCM_STEREO,			/**< Stereo channel */
 }MMSoundPcmChannel_t;
 
+/**
+ * Get audio stream latency value.
+ *
+ * @param	handle			[in]	handle to get latency
+ * @param	latency			[out]	Stream latency value(millisecond).
+ *
+ * @return	This function returns MM_ERROR_NONE on success, or negative value
+ *			with error code.
+ * @remark
+ * @see
+ */
+int mm_sound_pcm_get_latency(MMSoundPcmHandle_t handle, int *latency);
+
+/**
+ * Get started status of pcm stream.
+ *
+ * @param	handle			[in]	handle to check pcm start
+ * @param	is_started			[out]	retrieve started status of pcm stream.
+ *
+ * @return	This function returns MM_ERROR_NONE on success, or negative value
+ *			with error code.
+ * @remark
+ * @see
+ */
+int mm_sound_pcm_is_started(MMSoundPcmHandle_t handle, bool *is_started);
+
+int mm_sound_pcm_play_open_no_session(MMSoundPcmHandle_t *handle, const unsigned int rate, MMSoundPcmChannel_t channel, MMSoundPcmFormat_t format, int volume_config);
 
 /**
  * This function is to create handle for PCM playback.
  *
- * @param	handle	[out] handle to play pcm data
- * @param	rate	[in] sample rate (8000Hz ~ 44100Hz)
- * @param	channel	[in] number of channels (mono or stereo)
- * @param	format	[in] S8 or S16LE
- * @param	volume	[in] volume type
+ * @param	handle			[out] handle to play pcm data
+ * @param	rate			[in] sample rate (8000Hz ~ 44100Hz)
+ * @param	channel			[in] number of channels (mono or stereo)
+ * @param	format			[in] S8 or S16LE
+ * @param	volume config	[in] Volume type & volume gain
  *
  * @return	This function returns suggested buffer size (in bytes) on success, or negative value
  *			with error code.
@@ -759,7 +987,7 @@ int main(int argc, char* argv[])
 }
  * @endcode
  */
-int mm_sound_pcm_play_open(MMSoundPcmHandle_t *handle, const unsigned int rate, MMSoundPcmChannel_t channel, MMSoundPcmFormat_t format, const volume_type_t volume);
+int mm_sound_pcm_play_open(MMSoundPcmHandle_t *handle, const unsigned int rate, MMSoundPcmChannel_t channel, MMSoundPcmFormat_t format, int volume_config);
 
 /**
  * This function start pcm playback
@@ -929,7 +1157,19 @@ int main(int argc, char* argv[])
  */
 int mm_sound_pcm_play_close(MMSoundPcmHandle_t handle);
 
-
+/**
+ * This function is to ignore session for playback
+ *
+ * @param	handle	[in] handle to play pcm data
+ *
+ * @return	This function returns MM_ERROR_NONE on success, or negative value
+ *			with error code.
+ * @remark	This function only works for not started pcm handle and can't be reversed.
+ * @see
+ * @pre		PCM play handle should be created and not started.
+ * @post	PCM play session will be set to mix.
+ */
+int mm_sound_pcm_play_ignore_session(MMSoundPcmHandle_t *handle);
 
 /**
  * This function is to create handle for PCM capture.
@@ -1005,6 +1245,82 @@ int main(int argc, char* argv[])
  * @endcode
  */
 int mm_sound_pcm_capture_open(MMSoundPcmHandle_t *handle, const unsigned int rate, MMSoundPcmChannel_t channel, MMSoundPcmFormat_t format);
+
+/**
+ * This function is to create handle for PCM capture of source_type.
+ *
+ * @param	handle	[out] handle to capture pcm data
+ * @param	rate	[in] sample rate (8000Hz ~ 44100Hz)
+ * @param	channel	[in] number of channels (mono or stereo)
+ * @param	format	[in] S8 or S16LE
+ * @param	source_type		[in]  The source_type,mm_sound_source_type_e
+ *
+ * @return	This function returns suggested buffer size (in bytes) on success, or negative value
+ *			with error code.
+ * @remark	only mono channel is valid for now.
+ * @see		mm_sound_pcm_capture_read, mm_sound_pcm_capture_close, MMSoundPcmFormat_t, MMSoundPcmChannel_t
+ * @pre		None.
+ * @post	PCM capture handle will be allocated.
+ * @par Example
+ * @code
+#include <mm_sound.h>
+#include <stdio.h>
+#include <alloca.h>
+
+int main(int argc, char* argv[])
+{
+	FILE *fp = NULL;
+	char *buffer = NULL;
+	int ret = 0;
+	int size = 0;
+	int count = 0;
+	MMSoundPcmHandle_t handle;
+	char *filename = NULL;
+
+	if(argc !=2 )
+	{
+		printf("Usage) %s filename\n", argv[0]);
+		return -1;
+	}
+	filename = argv[1];
+
+	fp = fopen(filename,"w");
+	if(fp ==NULL)
+	{
+		printf("Can not open file %s\n", filename);
+		return -1;
+	}
+
+	size = mm_sound_pcm_capture_open_ex(&handle, 44100, MMSOUND_PCM_MONO, MMSOUND_PCM_S16_LE,1);
+	if(size < 0)
+	{
+		printf("Can not open capture handle\n");
+		return -2;
+	}
+
+	buffer = alloca(size);
+	while(1)
+	{
+		ret = mm_sound_pcm_capture_read(handle, (void*)buffer, size);
+		if(ret < 0)
+		{
+			printf("read fail\n");
+			break;
+		}
+		fwrite(buffer, ret, sizeof(char), fp);
+		if(count++ > 20) {
+			break;
+		}
+	}
+
+	fclose(fp);
+	mm_sound_pcm_capture_close(handle);
+	return 0;
+}
+
+ * @endcode
+ */
+int mm_sound_pcm_capture_open_ex(MMSoundPcmHandle_t *handle, const unsigned int rate, MMSoundPcmChannel_t channel, MMSoundPcmFormat_t format, mm_sound_source_type_e source_type);
 
 /**
  * This function start pcm capture
@@ -1181,6 +1497,20 @@ int main(int argc, char* argv[])
 int mm_sound_pcm_capture_close(MMSoundPcmHandle_t handle);
 
 /**
+ * This function is to ignore session for capture
+ *
+ * @param	handle	[in] handle to capture pcm data
+ *
+ * @return	This function returns MM_ERROR_NONE on success, or negative value
+ *			with error code.
+ * @remark	This function only works for not started pcm handle and can't be reversed.
+ * @see
+ * @pre		PCM capture handle should be created and not started.
+ * @post	PCM capture session will be set to mix.
+ */
+int mm_sound_pcm_capture_ignore_session(MMSoundPcmHandle_t *handle);
+
+/**
  * This function sets callback function for receiving messages from pcm API.
  *
  * @param	handle		[in]	Handle of pcm.
@@ -1218,14 +1548,15 @@ int mm_sound_pcm_set_message_callback (MMSoundPcmHandle_t handle, MMMessageCallb
 /**
  * Terminate callback function type.
  *
- * @param	param		[in]	Argument passed when callback was set
+ * @param	data		[in]	Argument passed when callback was set
+ * @param	id	    	[in]	handle which has completed playing
  *
  * @return	No return value
  * @remark	It is not allowed to call MMSound API recursively or do time-consuming
  *			task in this callback because this callback is called synchronously.
  * @see		mm_sound_play_sound
  */
-typedef void (*mm_sound_stop_callback_func) (void *data);
+typedef void (*mm_sound_stop_callback_func) (void *data, int id);
 
 /*
  * MMSound Play APIs
@@ -1234,18 +1565,18 @@ typedef void (*mm_sound_stop_callback_func) (void *data);
 /**
  * This function is to play system sound.
  *
- * @param	filename	[in] Sound filename to play
- * @param	volume		[in] Volume type
- * @param	callback	[in] Callback function pointer when playing is terminated.
- * @param	data		[in] Pointer to user data when callback is called.
- * @param	handle	[out] Handle of sound play.
+ * @param	filename		[in] Sound filename to play
+ * @param	volume config	[in] Volume type & volume gain
+ * @param	callback		[in] Callback function pointer when playing is terminated.
+ * @param	data			[in] Pointer to user data when callback is called.
+ * @param	handle			[out] Handle of sound play.
  *
  * @return	This function returns MM_ERROR_NONE on success, or negative value
  *			with error code.
  * @remark	When the stop callback is set, it will be called when system sound is
  *			terminated. If mm_sound_stop_sound() is called apparently before
  *			system sound is terminated, stop_callback will not be called.
- * @see		mm_sound_stop_sound mm_sound_stop_callback_func volume_type_t
+ * @see		mm_sound_stop_sound mm_sound_stop_callback_func volume_type_t volume_gain_t
  * @pre		None.
  * @post	Sound will be generated with given filename.
  * @par Example
@@ -1282,22 +1613,26 @@ int play_file()
 }
  * @endcode
  */
-int mm_sound_play_sound(const char *filename, const volume_type_t volume, mm_sound_stop_callback_func callback, void *data, int *handle);
+int mm_sound_play_sound(const char *filename, int volume_config, mm_sound_stop_callback_func callback, void *data, int *handle);
+
+int mm_sound_play_sound_without_session(const char *filename, int volume_config, mm_sound_stop_callback_func callback, void *data, int *handle);
+
+int mm_sound_play_solo_sound(const char *filename, int volume_config, mm_sound_stop_callback_func callback, void *data, int *handle);
 
 /**
  * This function is to play system sound. And other audio stream will be mute during playing time
  *
- * @param	filename	[in] Sound filename to play
- * @param	volume		[in] Volume type
- * @param	callback	[in] Callback function pointer when playing is terminated.
- * @param	data		[in] Pointer to user data when callback is called.
- * @param	handle	[out] Handle of sound play.
+ * @param	filename		[in] Sound filename to play
+ * @param	volume config	[in] Volume type & volume gain
+ * @param	callback		[in] Callback function pointer when playing is terminated.
+ * @param	data			[in] Pointer to user data when callback is called.
+ * @param	handle			[out] Handle of sound play.
  *
  * @return	This function returns MM_ERROR_NONE on success, or negative value
  *			with error code.
  * @remark	This function is almost same with mm_sound_play_sound,
  * 			but this make other audio playback stream to mute during playing time.
- * @see		mm_sound_stop_sound mm_sound_stop_callback_func volume_type_t
+ * @see		mm_sound_stop_sound mm_sound_stop_callback_func volume_type_t volume_gain_t
  * @pre		None.
  * @post	Sound will be generated with given filename.
  * @par Example
@@ -1334,7 +1669,9 @@ int play_file()
 }
  * @endcode
  */
-int mm_sound_play_loud_solo_sound(const char *filename, const volume_type_t volume_type, mm_sound_stop_callback_func callback, void *data, int *handle);
+int mm_sound_play_loud_solo_sound(const char *filename, int volume_config, mm_sound_stop_callback_func callback, void *data, int *handle);
+
+int mm_sound_play_loud_solo_sound_no_restore(const char *filename, int volume_config, mm_sound_stop_callback_func callback, void *data, int *handle);
 
 /**
  * This function is to stop playing system sound.
@@ -1507,6 +1844,9 @@ typedef enum  {
 	MM_SOUND_TONE_CDMA_NETWORK_BUSY_ONE_SHOT, 		/**CDMA_NETWORK_BUSY_ONE_SHOT tone: 425Hz 500ms ON, 500ms OFF. */
 	MM_SOUND_TONE_CDMA_ABBR_ALERT, 					/**CDMA_ABBR_ALERT tone: 1150Hz+770Hz 400ms ON */
 	MM_SOUND_TONE_CDMA_SIGNAL_OFF,					/**CDMA_SIGNAL_OFF - silent tone */
+	MM_SOUND_TONE_LOW_FRE,					/**100Hz continuous */
+	MM_SOUND_TONE_MED_FRE,					/**200Hz continuous */
+	MM_SOUND_TONE_HIGH_FRE,					/**300Hz continuous */
 	MM_SOUND_TONE_NUM,
 }MMSoundTone_t;
 
@@ -1515,17 +1855,51 @@ typedef unsigned long sound_time_msec_t;		/**< millisecond unit */
 /**
  * This function is to play tone sound.
  *
- * @param	num			[in] predefined tone type (MMSoundTone_t)
- * 			volume type	[in] volume type
- *			volume		[in] volume ratio (0.0 ~1.0)
+ * @param	num				[in] predefined tone type (MMSoundTone_t)
+ * 			volume config	[in] volume type & volume gain
+ *			volume			[in] volume ratio (0.0 ~1.0)
  * 			duration		[in] millisecond (-1 for infinite)
- *			handle		[in] Handle of mm_sound_play_tone
+ *			handle			[in] Handle of mm_sound_play_tone
+ *			enable_session	[in] set enable/unable session
  *
  * @return	This function returns MM_ERROR_NONE on success, or negative value
  *			with error code.
  *
  * @remark	It doesn't provide stop
- * @see	volume_type_t MMSoundTone_t
+ * @see	volume_type_t volume_gain_t MMSoundTone_t
+ * @pre		None.
+ * @post	TONE sound will be played.
+ * @par Example
+ * @code
+int ret = 0;
+
+ret = mm_sound_play_tone_ex(MM_SOUND_TONE_DTMF_9, VOLUME_TYPE_SYSTEM, 1.0, 1000, &handle, TRUE); //play 1 second with volume ratio 1.0
+if(ret < 0)
+{
+	printf("play tone failed\n");
+}
+else
+{
+	printf("play tone success\n");
+}
+ * @endcode
+ */
+int mm_sound_play_tone_ex (MMSoundTone_t num, int volume_config, const double volume, const int duration, int *handle, bool enable_session);
+
+/**
+ * This function is to play tone sound.
+ *
+ * @param	num				[in] predefined tone type (MMSoundTone_t)
+ * 			volume config	[in] volume type & volume gain
+ *			volume			[in] volume ratio (0.0 ~1.0)
+ * 			duration		[in] millisecond (-1 for infinite)
+ *			handle			[in] Handle of mm_sound_play_tone
+ *
+ * @return	This function returns MM_ERROR_NONE on success, or negative value
+ *			with error code.
+ *
+ * @remark	It doesn't provide stop
+ * @see	volume_type_t volume_gain_t MMSoundTone_t
  * @pre		None.
  * @post	TONE sound will be played.
  * @par Example
@@ -1543,7 +1917,7 @@ else
 }
  * @endcode
  */
-int mm_sound_play_tone (MMSoundTone_t num, const volume_type_t vol_type, const double volume, const int duration, int *handle);
+int mm_sound_play_tone (MMSoundTone_t num, int volume_config, const double volume, const int duration, int *handle);
 
 /*
  * Enumerations of System audio route policy
@@ -1736,7 +2110,7 @@ if (ret == MM_ERROR_NONE) {
 
  * @endcode
  */
-int mm_sound_route_get_a2dp_status (int* connected, char** bt_name);
+int mm_sound_route_get_a2dp_status (bool* connected, char** bt_name);
 
 
 /**
@@ -1782,7 +2156,6 @@ else
  * @endcode
  */
 int mm_sound_route_get_playing_device(system_audio_route_device_t *dev);
-
 
 /**
  * Audio route policy change callback function type.
@@ -1894,29 +2267,59 @@ int mm_sound_route_remove_change_callback(void);
  */
 
 typedef enum{
+	MM_SOUND_DIRECTION_NONE,
+	MM_SOUND_DIRECTION_IN,							/**< Capture */
+	MM_SOUND_DIRECTION_OUT,							/**< Playback */
+} mm_sound_direction;
+
+typedef enum{
 	MM_SOUND_DEVICE_IN_NONE				= 0x00,
 	MM_SOUND_DEVICE_IN_MIC				= 0x01,		/**< Device builtin mic. */
 	MM_SOUND_DEVICE_IN_WIRED_ACCESSORY	= 0x02,		/**< Wired input devices */
-	MM_SOUND_DEVICE_IN_BT_SCO			= 0x04,		/**< Bluetooth SCO device */
+	MM_SOUND_DEVICE_IN_BT_SCO	= 0x08,		/**< Bluetooth SCO device */
 } mm_sound_device_in;
 
 typedef enum{
-	MM_SOUND_DEVICE_OUT_NONE			= 0x00,
-	MM_SOUND_DEVICE_OUT_SPEAKER			= 0x01<<8,	/**< Device builtin speaker */
-	MM_SOUND_DEVICE_OUT_RECEIVER		= 0x02<<8,	/**< Device builtin receiver */
-	MM_SOUND_DEVICE_OUT_WIRED_ACCESSORY	= 0x04<<8,	/**< Wired output devices such as headphone, headset, and so on. */
-	MM_SOUND_DEVICE_OUT_BT_SCO			= 0x08<<8,	/**< Bluetooth SCO device */
-	MM_SOUND_DEVICE_OUT_BT_A2DP			= 0x10<<8,	/**< Bluetooth A2DP device */
-	MM_SOUND_DEVICE_OUT_DOCK			= 0x20<<8,	/**< DOCK device */
+	MM_SOUND_DEVICE_OUT_NONE			= 0x000,
+	MM_SOUND_DEVICE_OUT_SPEAKER		= 0x001<<8,	/**< Device builtin speaker */
+	MM_SOUND_DEVICE_OUT_RECEIVER		= 0x002<<8,	/**< Device builtin receiver */
+	MM_SOUND_DEVICE_OUT_WIRED_ACCESSORY	= 0x004<<8,	/**< Wired output devices such as headphone, headset, and so on. */
+	MM_SOUND_DEVICE_OUT_BT_SCO			= 0x008<<8,	/**< Bluetooth SCO device */
+	MM_SOUND_DEVICE_OUT_BT_A2DP		= 0x010<<8,	/**< Bluetooth A2DP device */
+	MM_SOUND_DEVICE_OUT_DOCK			= 0x020<<8,	/**< DOCK device */
+	MM_SOUND_DEVICE_OUT_HDMI			= 0x040<<8,	/**< HDMI device */
+	MM_SOUND_DEVICE_OUT_MIRRORING 		= 0x080<<8, /**< MIRRORING device */
+	MM_SOUND_DEVICE_OUT_USB_AUDIO		= 0x100<<8,	/**< USB Audio device */
+	MM_SOUND_DEVICE_OUT_MULTIMEDIA_DOCK	= 0x200<<8,	/**< Multimedia DOCK device */
 } mm_sound_device_out;
 
-#define MM_SOUND_ROUTE_NUM 10
+typedef enum {
+	MM_SOUND_VOLUME_DEVICE_OUT_SPEAKER,				/**< Device builtin speaker */
+	MM_SOUND_VOLUME_DEVICE_OUT_RECEIVER,			/**< Device builtin receiver */
+	MM_SOUND_VOLUME_DEVICE_OUT_WIRED_ACCESSORY,		/**< Wired output devices such as headphone, headset, and so on. */
+	MM_SOUND_VOLUME_DEVICE_OUT_BT_SCO,				/**< Bluetooth SCO device */
+	MM_SOUND_VOLUME_DEVICE_OUT_BT_A2DP,				/**< Bluetooth A2DP device */
+	MM_SOUND_VOLUME_DEVICE_OUT_DOCK,				/**< DOCK device */
+	MM_SOUND_VOLUME_DEVICE_OUT_HDMI,				/**< HDMI device */
+	MM_SOUND_VOLUME_DEVICE_OUT_MIRRORING,			/**< MIRRORING device */
+	MM_SOUND_VOLUME_DEVICE_OUT_USB_AUDIO,			/**< USB Audio device */
+	MM_SOUND_VOLUME_DEVICE_OUT_MULTIMEDIA_DOCK,		/**< Multimedia DOCK device */
+} mm_sound_volume_device_out_t;
+
+#define MM_SOUND_ROUTE_NUM 16
+#define MM_SOUND_NAME_NUM 32
 
 typedef enum{
 	MM_SOUND_ROUTE_OUT_SPEAKER = MM_SOUND_DEVICE_OUT_SPEAKER, /**< Routing audio output to builtin device such as internal speaker. */
+	MM_SOUND_ROUTE_OUT_RECEIVER = MM_SOUND_DEVICE_OUT_RECEIVER, /**< Routing audio output to builtin device such as internal receiver. */
 	MM_SOUND_ROUTE_OUT_WIRED_ACCESSORY = MM_SOUND_DEVICE_OUT_WIRED_ACCESSORY,/**< Routing audio output to wired accessory such as headphone, headset, and so on. */
-	MM_SOUND_ROUTE_OUT_BLUETOOTH = MM_SOUND_DEVICE_OUT_BT_A2DP, /**< Routing audio output to bluetooth A2DP. */
+	MM_SOUND_ROUTE_OUT_BLUETOOTH_SCO = MM_SOUND_DEVICE_OUT_BT_SCO, /**< Routing audio output to bluetooth SCO. */
+	MM_SOUND_ROUTE_OUT_BLUETOOTH_A2DP = MM_SOUND_DEVICE_OUT_BT_A2DP, /**< Routing audio output to bluetooth A2DP. */
 	MM_SOUND_ROUTE_OUT_DOCK = MM_SOUND_DEVICE_OUT_DOCK, /**< Routing audio output to DOCK */
+	MM_SOUND_ROUTE_OUT_HDMI = MM_SOUND_DEVICE_OUT_HDMI, /**< Routing audio output to HDMI */
+	MM_SOUND_ROUTE_OUT_MIRRORING = MM_SOUND_DEVICE_OUT_MIRRORING, /**< Routing audio output to MIRRORING */
+	MM_SOUND_ROUTE_OUT_USB_AUDIO = MM_SOUND_DEVICE_OUT_USB_AUDIO, /**< Routing audio output to USB Audio */
+	MM_SOUND_ROUTE_OUT_MULTIMEDIA_DOCK = MM_SOUND_DEVICE_OUT_MULTIMEDIA_DOCK, /**< Routing audio output to Multimedia DOCK */
 	MM_SOUND_ROUTE_IN_MIC = MM_SOUND_DEVICE_IN_MIC, /**< Routing audio input to device builtin mic. */
 	MM_SOUND_ROUTE_IN_WIRED_ACCESSORY = MM_SOUND_DEVICE_IN_WIRED_ACCESSORY, /**< Routing audio input to wired accessory. */
 	MM_SOUND_ROUTE_IN_MIC_OUT_RECEIVER = MM_SOUND_DEVICE_IN_MIC | MM_SOUND_DEVICE_OUT_RECEIVER, /**< Routing audio input to device builtin mic and routing audio output to builtin receiver*/
@@ -1926,13 +2329,83 @@ typedef enum{
 	MM_SOUND_ROUTE_INOUT_BLUETOOTH = MM_SOUND_DEVICE_IN_BT_SCO | MM_SOUND_DEVICE_OUT_BT_SCO /**< Routing audio input and output to bluetooth SCO */
 } mm_sound_route;
 
+/*
+ * MMSound Device APIs
+ */
+
+typedef enum {
+	MM_SOUND_DEVICE_IO_DIRECTION_IN_FLAG      = 0x0001,  /**< Flag for input devices */
+	MM_SOUND_DEVICE_IO_DIRECTION_OUT_FLAG     = 0x0002,  /**< Flag for output devices */
+	MM_SOUND_DEVICE_IO_DIRECTION_BOTH_FLAG    = 0x0004,  /**< Flag for input/output devices (both directions are available) */
+	MM_SOUND_DEVICE_TYPE_INTERNAL_FLAG        = 0x0010,  /**< Flag for built-in devices */
+	MM_SOUND_DEVICE_TYPE_EXTERNAL_FLAG        = 0x0020,  /**< Flag for external devices */
+	MM_SOUND_DEVICE_STATE_DEACTIVATED_FLAG    = 0x1000,  /**< Flag for deactivated devices */
+	MM_SOUND_DEVICE_STATE_ACTIVATED_FLAG      = 0x2000,  /**< Flag for activated devices */
+	MM_SOUND_DEVICE_ALL_FLAG                  = 0xFFFF,  /**< Flag for all devices */
+} mm_sound_device_flags_e;
+
+typedef enum {
+	MM_SOUND_DEVICE_IO_DIRECTION_IN,
+	MM_SOUND_DEVICE_IO_DIRECTION_OUT,
+	MM_SOUND_DEVICE_IO_DIRECTION_BOTH,
+} mm_sound_device_io_direction_e;
+
+typedef enum {
+	MM_SOUND_DEVICE_STATE_DEACTIVATED,
+	MM_SOUND_DEVICE_STATE_ACTIVATED,
+} mm_sound_device_state_e;
+
+typedef enum
+{
+	MM_SOUND_DEVICE_TYPE_BUILTIN_SPEAKER,   /**< Built-in speaker. */
+	MM_SOUND_DEVICE_TYPE_BUILTIN_RECEIVER,  /**< Built-in receiver. */
+	MM_SOUND_DEVICE_TYPE_BUILTIN_MIC,       /**< Built-in mic. */
+	MM_SOUND_DEVICE_TYPE_AUDIOJACK,         /**< Audio jack such as headphone, headset, and so on. */
+	MM_SOUND_DEVICE_TYPE_BLUETOOTH,         /**< Bluetooth */
+	MM_SOUND_DEVICE_TYPE_HDMI,              /**< HDMI. */
+	MM_SOUND_DEVICE_TYPE_MIRRORING,         /**< MIRRORING. */
+	MM_SOUND_DEVICE_TYPE_USB_AUDIO,         /**< USB Audio. */
+} mm_sound_device_type_e;
+
+typedef void *MMSoundDevice_t;          /**< MMsound Device handle */
+typedef void *MMSoundDeviceList_t;      /**< MMsound Device list handle */
+typedef void (*mm_sound_device_connected_cb) (MMSoundDevice_t device_h, bool is_connected, void *user_data);
+typedef void (*mm_sound_device_info_changed_cb) (MMSoundDevice_t device_h, int changed_info_type, void *user_data);
+
+int mm_sound_add_device_connected_callback(mm_sound_device_flags_e flags, mm_sound_device_connected_cb func, void *user_data);
+int mm_sound_remove_device_connected_callback(void);
+int mm_sound_add_device_information_changed_callback(mm_sound_device_flags_e flags, mm_sound_device_info_changed_cb func, void *user_data);
+int mm_sound_remove_device_information_changed_callback(void);
+
+int mm_sound_get_current_device_list(mm_sound_device_flags_e device_mask, MMSoundDeviceList_t *device_list);
+int mm_sound_get_next_device (MMSoundDeviceList_t device_list, MMSoundDevice_t *device);
+int mm_sound_get_prev_device (MMSoundDeviceList_t device_list, MMSoundDevice_t *device);
+int mm_sound_get_device_type(MMSoundDevice_t device_h, mm_sound_device_type_e *type);
+int mm_sound_get_device_io_direction(MMSoundDevice_t device_h, mm_sound_device_io_direction_e *io_direction);
+int mm_sound_get_device_id(MMSoundDevice_t device_h, int *id);
+int mm_sound_get_device_state(MMSoundDevice_t device_h, mm_sound_device_state_e *state);
+int mm_sound_get_device_name(MMSoundDevice_t device_h, char **name);
+
+/* below APIs are for product */
 typedef int (*mm_sound_available_route_cb)(mm_sound_route route, void *user_data);
-
 int mm_sound_is_route_available(mm_sound_route route, bool *is_available);
-
 int mm_sound_foreach_available_route_cb(mm_sound_available_route_cb, void *user_data);
-
 int mm_sound_set_active_route(mm_sound_route route);
+int mm_sound_set_active_route_auto(void);
+
+
+/**
+ * This function is to set active route without callback to client.
+ *
+ * @param	route			[IN]	route
+ * @return 	This function returns MM_ERROR_NONE on success, or negative value
+ *			with error code.
+ * @remark	None.
+ * @pre		None.
+ * @post	None.
+ * @see		mm_sound_set_active_route_without_broadcast mm_sound_route
+ */
+int mm_sound_set_active_route_without_broadcast(mm_sound_route route);
 
 /**
  * This function is to get active playback device and capture device.
@@ -1963,6 +2436,7 @@ typedef void (*mm_sound_active_device_changed_cb) (mm_sound_device_in device_in,
 /**
  * This function is to add active device callback.
  *
+ * @param	name			[in]	plugin name (name max size : MM_SOUND_NAME_NUM 32)
  * @param	func			[in]	callback function pointer
  * @param	user_data		[in]	user data passing to callback function
  *
@@ -1999,11 +2473,11 @@ int active_device_control()
 
  * @endcode
  */
-int mm_sound_add_active_device_changed_callback(mm_sound_active_device_changed_cb func, void *user_data);
-
+int mm_sound_add_active_device_changed_callback(const char *name,mm_sound_active_device_changed_cb func, void *user_data);
 /**
  * This function is to remove active device callback.
  *
+ * @param	name			[in]	plugin name (name max size : MM_SOUND_NAME_NUM 32)
  * @return 	This function returns MM_ERROR_NONE on success, or negative value
  * 			with error code.
  * @remark	None.
@@ -2038,8 +2512,7 @@ int active_device_control()
 
  * @endcode
  */
-int mm_sound_remove_active_device_changed_callback(void);
-
+int mm_sound_remove_active_device_changed_callback(const char *name);
 /**
  * Available route changed callback function type.
  *
@@ -2130,6 +2603,40 @@ int available_device_control()
  * @endcode
  */
 int mm_sound_remove_available_route_changed_callback(void);
+
+ /**
+ * This function is to set path for active device.
+ *
+ * @param	device_out		[in]	active playback device
+ * @param	device_in		[in]	active capture device
+ *
+ * @return 	This function returns MM_ERROR_NONE on success, or negative value
+ * 			with error code.
+ * @remark	None.
+ * @see		None
+ * @pre		None.
+ * @post	None.
+ * @par Example
+ * @*/
+int mm_sound_set_sound_path_for_active_device(mm_sound_device_out device_out, mm_sound_device_in device_in);
+
+/**
+* This function is to get current audio path.
+*
+* @param   device_out	   [in]    active playback device
+* @param   device_in	   [in]    active capture device
+*
+* @return  This function returns MM_ERROR_NONE on success, or negative value
+*		   with error code.
+* @remark  None.
+* @see	   None
+* @pre	   None.
+* @post    None.
+* @par Example
+* @*/
+
+int mm_sound_get_audio_path(mm_sound_device_in *device_in, mm_sound_device_out *device_out);
+
 /**
 	@}
  */

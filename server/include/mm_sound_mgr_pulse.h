@@ -24,17 +24,42 @@
 
 
 #include "../../include/mm_ipc.h"
+#include "mm_sound_mgr_session.h"
 
 void* MMSoundMgrPulseInit(void);
 int MMSoundMgrPulseFini(void* handle);
 
-void MMSoundMgrPulseSetDefaultSink (char* default_sink_name);
+void MMSoundMgrPulseSetUSBDefaultSink (int usb_device);
+void MMSoundMgrPulseSetDefaultSink (char* device_api_name, char* device_bus_name);
+void MMSoundMgrPulseSetDefaultSinkByName (char* name);
+void MMSoundMgrPulseSetSourcemutebyname (char* sourcename, int mute);
 
 int MMSoundMgrPulseHandleRegisterMonoAudio (void* pinfo);
+int MMSoundMgrPulseHandleRegisterAudioBalance (void* pinfo);
 int MMSoundMgrPulseHandleRegisterBluetoothStatus (void* pinfo);
+int MMSoundMgrPulseHandleRegisterSurroundSoundStatus(void *pinfo);
 
 int MMSoundMgrPulseHandleIsBtA2DPOnReq (mm_ipc_msg_t *msg, int (*sendfunc)(mm_ipc_msg_t*));
 void MMSoundMgrPulseGetInitialBTStatus (bool *a2dp, bool *sco);
+int MMSoundMgrPulseGetBluetoothInfo(bool* is_nrec, int* bandwidth);
+
+void MMSoundMgrPulseUpdateBluetoothAGCodec (void);
+bool MMSoundMgrPulseBTSCONRECStatus(void);
+bool MMSoundMgrPulseBTSCOWBStatus(void);
+
+void MMSoundMgrPulseSetSession(session_t session, session_state_t state);
+void MMSoundMgrPulseSetSubsession(subsession_t subsession, int subsession_opt);
+void MMSoundMgrPulseSetActiveDevice(mm_sound_device_in device_in, mm_sound_device_out device_out);
+void MMSoundMgrPulseUpdateVolume(void);
+
+void MMSoundMgrPulseSetCorkAll (bool cork);
+void MMSoundMgrPulseUnLoadHDMI();
+void MMSoundMgrPulseGetPathInfo(mm_sound_device_out *device_out, mm_sound_device_in *device_in);
+#ifdef TIZEN_MICRO
+void MMSoundMgrPulseSetMuteall(int mute);
+void MMSoundMgrPulseSetVolumeLevel(volume_type_t volume_type, unsigned int volume_level);
+#endif
+void MMSoundMgrPulseSetVoicecontrolState (bool state);
 
 #endif /* __MM_SOUND_MGR_PULSE_H__ */
 

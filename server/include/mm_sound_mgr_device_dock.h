@@ -19,11 +19,23 @@
  *
  */
 
-#ifndef MM_SOUND_RECOVERY_H_
-#define MM_SOUND_RECOVERY_H_
+#ifndef __MM_SOUND_MGR_DOCK_H__
+#define __MM_SOUND_MGR_DOCK_H__
+
+#include "../../include/mm_ipc.h"
+
+typedef enum
+{
+	DOCK_NONE      = 0,
+	DOCK_DESKDOCK  = 1,
+	DOCK_CARDOCK   = 2,
+	DOCK_AUDIODOCK = 7,
+	DOCK_SMARTDOCK = 8
+} DOCK_STATUS;
+
+int MMSoundMgrDockInit(void);
+int MMSoundMgrDockFini(void);
 
 
+#endif /* __MM_SOUND_MGR_DOCK_H__ */
 
-int sound_system_bootup_recovery();
-
-#endif /* MM_SOUND_RECOVERY_H_ */

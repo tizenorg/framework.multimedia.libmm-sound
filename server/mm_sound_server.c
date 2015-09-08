@@ -30,8 +30,19 @@
 #include <pthread.h>
 #include <getopt.h>
 
+#include <vconf.h>
 #include <mm_error.h>
 #include <mm_debug.h>
+
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <semaphore.h>
+#include <time.h>
+#include <errno.h>
+
+
+#include "../include/mm_sound_common.h"
+#include "../include/mm_sound_utils.h"
 #include "include/mm_sound_thread_pool.h"
 #include "include/mm_sound_mgr_run.h"
 #include "include/mm_sound_mgr_codec.h"
@@ -39,13 +50,12 @@
 #include "include/mm_sound_mgr_pulse.h"
 #include "include/mm_sound_mgr_asm.h"
 #include "include/mm_sound_mgr_session.h"
-#include "include/mm_sound_mgr_headset.h"
-#include "include/mm_sound_mgr_dock.h"
-#include "include/mm_sound_recovery.h"
-#include "include/mm_sound_utils.h"
-#include "include/mm_sound_common.h"
-
-#include <heynoti.h>
+#include "include/mm_sound_mgr_device.h"
+#include "include/mm_sound_mgr_device_headset.h"
+#include "include/mm_sound_mgr_device_dock.h"
+#include "include/mm_sound_mgr_device_hdmi.h"
+#include "include/mm_sound_mgr_device_wfd.h"
+#include <audio-session-manager.h>
 
 #include <glib.h>
 
@@ -58,12 +68,29 @@
 
 #define	ASM_CHECK_INTERVAL	10000
 
+#define MAX_PLUGIN_DIR_PATH_LEN	256
+
 typedef struct {
-    char *plugdir;
+    char plugdir[MAX_PLUGIN_DIR_PATH_LEN];
     int startserver;
     int printlist;
     int testmode;
+    int poweroff;
+    int soundreset;
 } server_arg;
+
+static char *str_errormsg[] = {
+    "Operation is success.",
+    "Handle Init Fail",
+    "Path Init Fail",
+    "Handle Fini Fail",
+    "Path Fini Fail",
+    "Handle Reset Fail",
+    "Path Reset Fail",
+    "Handle Dump Fail",
+    "Path Dump Fail",
+    "Sync Dump Fail",
+};
 
 static int getOption(int argc, char **argv, server_arg *arg);
 static int usgae(int argc, char **argv);
@@ -79,7 +106,7 @@ GMainLoop *g_mainloop;
 
 void* pulse_handle;
 
-GThreadFunc event_loop_thread(gpointer data)
+gpointer event_loop_thread(gpointer data)
 {
 	g_mainloop = g_main_loop_new(NULL, TRUE);
 	if(g_mainloop == NULL) {
@@ -89,82 +116,116 @@ GThreadFunc event_loop_thread(gpointer data)
 	return NULL;
 }
 
-void hibernation_leave_cb()
-{
-	MMSoundMgrPulseHandleRegisterMonoAudio(pulse_handle);
-	MMSoundMgrPulseHandleRegisterBluetoothStatus (pulse_handle);
-
-	if(sound_system_bootup_recovery()) {
-		debug_error("Audio reset failed\n");
-	} else {
-		debug_msg("Audio reset success\n");
-	}
-}
-
-void wait_for_asm_ready ()
+static void __wait_for_asm_ready ()
 {
 	int retry_count = 0;
 	int asm_ready = 0;
 	while (!asm_ready) {
-		debug_log("Checking ASM ready....[%d]\n", retry_count++);
+		debug_msg("Checking ASM ready....[%d]\n", retry_count++);
 		if (vconf_get_int(ASM_READY_KEY, &asm_ready)) {
 			debug_warning("vconf_get_int for ASM_READY_KEY (%s) failed\n", ASM_READY_KEY);
 		}
 		usleep (ASM_CHECK_INTERVAL);
 	}
-	debug_log("ASM is now ready...clear key!!!\n");
-	vconf_unset (ASM_READY_KEY);
+	debug_msg("ASM is now ready...clear the key!!!\n");
+	vconf_set_int(ASM_READY_KEY, 0);
+}
+
+static int _handle_power_off ()
+{
+	int handle = 0;
+	int asm_error = 0;
+
+	if (ASM_register_sound (-1, &handle, ASM_EVENT_EMERGENCY, ASM_STATE_PLAYING, NULL, NULL, ASM_RESOURCE_NONE, &asm_error)) {
+		if (ASM_unregister_sound (handle, ASM_EVENT_EMERGENCY, &asm_error)) {
+			debug_log ("asm register/unregister success!!!\n");
+			return 0;
+		} else {
+			debug_error ("asm unregister failed...0x%x\n", asm_error);
+		}
+	} else {
+		debug_error ("asm register failed...0x%x\n", asm_error);
+	}
+
+	return -1;
+}
+
+static int _handle_sound_reset ()
+{
+	int ret = 0;
+	debug_warning ("not supported\n");
+	return 0;
+}
+
+static sem_t* sem_create_n_wait()
+{
+	sem_t* sem = NULL;
+
+	if ((sem = sem_open ("booting-sound", O_CREAT, 0660, 0))== SEM_FAILED) {
+		debug_error ("error creating sem : %d", errno);
+		return NULL;
+	}
+
+	debug_msg ("returning sem [%p]", sem);
+	return sem;
 }
 
 int main(int argc, char **argv)
 {
+	sem_t* sem = NULL;
 	server_arg serveropt;
 	struct sigaction action;
-	int ret;
+#ifdef USE_HIBERNATION
 	int heynotifd = -1;
-
+#endif
+	int volumes[VOLUME_TYPE_MAX] = {0, };
+#if !defined(USE_SYSTEM_SERVER_PROCESS_MONITORING)
+	int pid;
+#endif
 
 	action.sa_handler = _exit_handler;
 	action.sa_flags = 0;
 	sigemptyset(&action.sa_mask);
 
-#if !defined(USE_SYSTEM_SERVER_PROCESS_MONITORING)
-	int pid;
-#endif
-
 	if (getOption(argc, argv, &serveropt))
 		return 1;
 
+	debug_warning("sound_server [%d] init \n", getpid());
+
+	if (serveropt.startserver) {
+		if ((sem = sem_create_n_wait()) == NULL) {
+			debug_log("sem_create_n_wait failed..\n");
+			return 0;
+		}
+	}
 	/* Daemon process create */
 	if (!serveropt.testmode && serveropt.startserver) {
 #if !defined(USE_SYSTEM_SERVER_PROCESS_MONITORING)
 		daemon(0,0); //chdir to ("/"), and close stdio
 #endif
 	}
+	if (serveropt.poweroff) {
+		if (_handle_power_off() == 0) {
+			debug_log("_handle_power_off success!!\n");
+		} else {
+			debug_error("_handle_power_off failed..\n");
+		}
+		return 0;
+	}
+
+	if (serveropt.soundreset) {
+		if (_handle_sound_reset() == 0) {
+			debug_log("_handle_sound_reset success!!\n");
+		} else {
+			debug_error("_handle_sound_reset failed..\n");
+		}
+		return 0;
+	}
+
+	/* Sound Server Starts!!!*/
+	debug_warning("sound_server [%d] start \n", getpid());
 
 	signal(SIGPIPE, SIG_IGN); //ignore SIGPIPE
-	/*
-	 * Set oom_adj lowest 2010.03.09
-	 */
-
-	if(sound_system_bootup_recovery()) {
-		debug_error("Audio reset failed\n");
-	} else {
-		debug_msg("Audio reset success\n");
-	}
-
-	heynotifd = heynoti_init();
-	if(heynoti_subscribe(heynotifd, "HIBERNATION_LEAVE", hibernation_leave_cb, NULL)) {
-		debug_error("heynoti_subscribe failed...\n");
-	} else {
-		debug_msg("heynoti_subscribe() success\n");
-	}
-
-	if(heynoti_attach_handler(heynotifd)) {
-		debug_error("heynoti_attach_handler() failed\n");
-	} else {
-		debug_msg("heynoti_attach_handler() success\n");
-	}
 
 #if !defined(USE_SYSTEM_SERVER_PROCESS_MONITORING)
 	while(1)
@@ -199,7 +260,6 @@ int main(int argc, char **argv)
 		return 3;
 	}
 
-
 	if (serveropt.startserver || serveropt.printlist) {
 		MMSoundThreadPoolInit();
 		MMSoundMgrRunInit(serveropt.plugdir);
@@ -210,23 +270,39 @@ int main(int argc, char **argv)
 		pulse_handle = MMSoundMgrPulseInit();
 		MMSoundMgrASMInit();
 		/* Wait for ASM Ready */
-		wait_for_asm_ready();
+		__wait_for_asm_ready();
+		debug_warning("sound_server [%d] asm ready...now, initialize devices!!!\n", getpid());
+
 		_mm_sound_mgr_device_init();
 		MMSoundMgrHeadsetInit();
 		MMSoundMgrDockInit();
+		MMSoundMgrHdmiInit();
+		MMSoundMgrWfdInit();
 		MMSoundMgrSessionInit();
 	}
+
+	debug_warning("sound_server [%d] initialization complete...now, start running!!\n", getpid());
 
 	if (serveropt.startserver) {
 		/* Start Run types */
 		MMSoundMgrRunRunAll();
 
+#ifdef USE_HIBERNATION
 		/* set hibernation check */
 		_mm_sound_check_hibernation (HIBERNATION_SOUND_CHECK_PATH);
+#endif
+		unlink(PA_READY); // remove pa_ready file after sound-server init.
 
+		if (sem_post(sem) == -1) {
+			debug_error ("error sem post : %d", errno);
+		} else {
+			debug_msg ("Ready to play booting sound!!!!");
+		}
 		/* Start Ipc mgr */
 		MMSoundMgrIpcReady();
 	}
+
+	debug_warning("sound_server [%d] terminating \n", getpid());
 
 	if (serveropt.startserver || serveropt.printlist) {
 		MMSoundMgrRunStopAll();
@@ -237,26 +313,35 @@ int main(int argc, char **argv)
 		MMSoundMgrRunFini();
 		MMSoundThreadPoolFini();
 
+		MMSoundMgrWfdFini();
+		MMSoundMgrHdmiFini();
 		MMSoundMgrDockFini();
 		MMSoundMgrHeadsetFini();
 		MMSoundMgrSessionFini();
 		_mm_sound_mgr_device_fini();
 		MMSoundMgrASMFini();
 		MMSoundMgrPulseFini(pulse_handle);
-
+#ifdef USE_HIBERNATION
 		if(heynoti_unsubscribe(heynotifd, "HIBERNATION_LEAVE", NULL)) {
 			debug_error("heynoti_unsubscribe failed..\n");
 		}
 		heynoti_close(heynotifd);
+#endif
 	}
+
+	debug_warning("sound_server [%d] exit \n", getpid());
+
 	return 0;
 }
 
 static int getOption(int argc, char **argv, server_arg *arg)
 {
 	int c;
+	char *plugin_env_dir = NULL;
 	static struct option long_options[] = {
 		{"start", 0, 0, 'S'},
+		{"poweroff", 0, 0, 'F'},
+		{"soundreset", 0, 0, 'R'},
 		{"list", 0, 0, 'L'},
 		{"help", 0, 0, 'H'},
 		{"plugdir", 1, 0, 'P'},
@@ -265,9 +350,12 @@ static int getOption(int argc, char **argv, server_arg *arg)
 	};
 	memset(arg, 0, sizeof(server_arg));
 
-	arg->plugdir = getenv(PLUGIN_ENV);
-	if (arg->plugdir == NULL)
-		arg->plugdir = PLUGIN_DIR;
+	plugin_env_dir = getenv(PLUGIN_ENV);
+	if (plugin_env_dir) {
+		MMSOUND_STRNCPY(arg->plugdir, plugin_env_dir, MAX_PLUGIN_DIR_PATH_LEN);
+	} else {
+		MMSOUND_STRNCPY(arg->plugdir, PLUGIN_DIR, MAX_PLUGIN_DIR_PATH_LEN);
+	}
 		
 	arg->testmode = 0;
 
@@ -275,7 +363,7 @@ static int getOption(int argc, char **argv, server_arg *arg)
 	{
 		int opt_idx = 0;
 
-		c = getopt_long (argc, argv, "SLHRP:T", long_options, &opt_idx);
+		c = getopt_long (argc, argv, "SFLHRUP:Tiurd", long_options, &opt_idx);
 		if (c == -1)
 			break;
 		switch (c)
@@ -283,14 +371,17 @@ static int getOption(int argc, char **argv, server_arg *arg)
 		case 'S': /* Start daemon */
 			arg->startserver = 1;
 			break;
+		case 'F': /* Poweroff */
+			arg->poweroff = 1;
+			break;
+		case 'R': /* SoundReset */
+			arg->soundreset = 1;
+			break;
 		case 'L': /* list of plugins */
 			arg->printlist = 1;
 			break;
-		case 'R':
-			MMSoundMgrCodecInit(arg->plugdir);
-			break;
 		case 'P': /* Custom plugindir */
-			arg->plugdir = optarg;
+			MMSOUND_STRNCPY(arg->plugdir, optarg, MAX_PLUGIN_DIR_PATH_LEN);
 			break;
 		case 'T': /* Test mode */
 			arg->testmode = 1;
@@ -349,9 +440,13 @@ static int usgae(int argc, char **argv)
 {
 	fprintf(stderr, "Usage: %s [Options]\n", argv[0]);
 	fprintf(stderr, "\t%-20s: start sound server.\n", "--start,-S");
+	fprintf(stderr, "\t%-20s: handle poweroff\n", "--poweroff,-F");
+	fprintf(stderr, "\t%-20s: handle soundreset\n", "--soundreset,-R");
+	fprintf(stderr, "\t%-20s: help message.\n", "--help,-H");
+#if 0 /* currently not in use */
 	fprintf(stderr, "\t%-20s: print plugin list.\n", "--list,-L");
-	fprintf(stderr, "\t%-20s: print this message.\n", "--help,-H");
 	fprintf(stderr, "\t%-20s: print this message.\n", "--plugdir,-P");
+#endif
 
 	return 1;
 }

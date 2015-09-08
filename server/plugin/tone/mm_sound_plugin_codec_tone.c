@@ -27,8 +27,6 @@
 #include <unistd.h>
 #include <pthread.h>
 
-#include <avsys-audio.h>
-
 #include "../../include/mm_sound_thread_pool.h"
 #include "../../include/mm_sound_plugin_codec.h"
 #include <mm_error.h>
@@ -42,6 +40,10 @@
 #include <fcntl.h>
 #include <math.h>
 #include <glib.h>
+
+#include <pulse/sample.h>
+#include "../../../include/mm_sound_pa_client.h"
+
 #ifndef M_PI
 #define M_PI  3.14159265358979323846
 #endif
@@ -72,18 +74,20 @@ typedef enum {
 	CONTROL_PLAYING,
 } control_e;
 
+#if 0
 typedef struct {
 	pthread_mutex_t syncker;
 	pthread_cond_t cond;
 	int state;
 } tone_control_t;
+#endif
 
 typedef struct {
      /* AMR Buffer */
 	int				size; /* sizeof hole amr data */
 
      /* Audio Infomations */
-	avsys_handle_t	     audio_handle;
+	int				handle;
 
      /* control Informations */
 	int				repeat_count;
@@ -112,13 +116,13 @@ typedef struct st_tone
 	float low_frequency;
 	float middle_frequency;
 	float high_frequency;
-	int	playingTime;
-	int	loopCnt;
-	int	loopIndx;
+	int playingTime;
+	int loopCnt;
+	int loopIndx;
 } TONE;
 
- static const int TONE_SEGMENT[][MM_SOUND_TONE_NUM] =
- {
+static const int TONE_SEGMENT[][MM_SOUND_TONE_NUM] =
+{
 	{941,	1336,	0,	-1,	0,	0,
 	-1,	-1,	-1,	-1,	0,	0},// 0 key: 1336Hz, 941Hz
 
@@ -171,7 +175,7 @@ typedef struct st_tone
 	-1,	-1,	-1,	-1,	0,	0},  //Call supervisory tone, Dial tone: CEPT: 425Hz, continuous
 
 	{350,	440, 0,	-1,	0,	0,
-	-1,	-1,	-1,	-1,	0,	0},  //Call supervisory tone, Dial tone: ANSI (IS-95): 350Hz+440Hz, continuous\
+	-1,	-1,	-1,	-1,	0,	0},  //Call supervisory tone, Dial tone: ANSI (IS-95): 350Hz+440Hz, continuous
 
 	{400,	0,	0,	-1,	0,	0,
 	-1,	-1,	-1,	-1,	0,	0},  //Call supervisory tone, Dial tone: JAPAN: 400Hz, continuous
@@ -190,14 +194,14 @@ typedef struct st_tone
 
 	{425,	0,	0,	200,	0,	0,
 		0,	0,	0,	200,	0,	0,
-	-1,	-1,	-1,	-1,	0,	0}, //Call supervisory tone, Congestion: CEPT, JAPAN: 425Hz, 200ms ON, 200ms OFF
+	-1,	-1,	-1,	-1,	1,	0}, //Call supervisory tone, Congestion: CEPT, JAPAN: 425Hz, 200ms ON, 200ms OFF
 
 	{480,	620, 0,	250,	0,	0,
 		0,	0,	0,	250,	0,	0,
 	-1,	-1,	-1,	-1,	0,	0}, //Call supervisory tone, Congestion: ANSI (IS-95): 480Hz+620Hz, 250ms ON, 250ms OFF...
 
 	{425,	0,	0,	200,	0,	0,
-	-1,	-1,	-1,	-1,	0,	0}, //Call supervisory tone, Radio path acknowlegment : CEPT, ANSI: 425Hz, 200ms ON
+	-1,	-1,	-1,	-1,	1,	0}, //Call supervisory tone, Radio path acknowlegment : CEPT, ANSI: 425Hz, 200ms ON
 
 	{400,	0,	0,	1000,	0,	0,
 		0,	0,	0,	2000,	0,	0,
@@ -234,26 +238,26 @@ typedef struct st_tone
 	-1,	-1,	-1,	-1,	0,	0}, //Call supervisory tone, Ring Tone: ANSI (IS-95): 440Hz + 480Hz, 2s ON, 4s OFF...
 
 	{400,   1200,	  0, 	35,	0,	 0,
-	-1,	-1,	-1,	-1,	0,	0}, // General beep: 400Hz+1200Hz, 35ms ON
+	-1,	-1,	-1,	-1,	1,	0}, // General beep: 400Hz+1200Hz, 35ms ON
 
 	{1200,	0,	0, 100,	0,	0,
 		0,	0,	0, 100,	0,	0,
 		-1,	-1,	-1,	-1,	2,	0}, //Proprietary tone, positive acknowlegement: 1200Hz, 100ms ON, 100ms OFF 2 bursts
 
 	{300, 400, 500,  400,	0,	0,
-		-1,	-1,	-1,	-1,	0,	0}, //Proprietary tone, negative acknowlegement: 300Hz+400Hz+500Hz, 400ms ON
+		-1,	-1,	-1,	-1,	1,	0}, //Proprietary tone, negative acknowlegement: 300Hz+400Hz+500Hz, 400ms ON
 
 	{400, 1200,   0,  200,	0,	0,
-		-1,	-1,	-1,	-1,	0,	0}, //Proprietary tone, prompt tone: 400Hz+1200Hz, 200ms ON
+		-1,	-1,	-1,	-1,	1,	0}, //Proprietary tone, prompt tone: 400Hz+1200Hz, 200ms ON
 
 	{400,	1200,	0,	35,	0,	0,
 		0,	0,	0,	200,		0,	0,
 	400,		1200,	0,	35,	0,	0,
-		-1,	-1,	-1,	-1,	0,	0}, //Proprietary tone, general double beep: twice 400Hz+1200Hz, 35ms ON, 200ms OFF, 35ms ON
+		-1,	-1,	-1,	-1,	1,	0}, //Proprietary tone, general double beep: twice 400Hz+1200Hz, 35ms ON, 200ms OFF, 35ms ON
 
 	{440,	0,	0,	250,	0,	0,
 	 620,	0,	0,	250,	0,	0,
-		-1,	-1,	-1,	-1,	0,	0}, //Call supervisory tone (IS-95), intercept tone: alternating 440 Hz and 620 Hz tones, each on for 250 ms
+		-1,	-1,	-1,	-1,	1,	0}, //Call supervisory tone (IS-95), intercept tone: alternating 440 Hz and 620 Hz tones, each on for 250 ms
 
 	{440,	0,	0,	250, 0,	0,
 	620,		0,	0,	250, 0,	0,
@@ -284,7 +288,7 @@ typedef struct st_tone
 
 	{440,	0,	0,	250,	0,	0,
 	620,		0,	0,	250,	0,	0,
-		-1,	-1,	-1,	-1,	0,	0 }, //CDMA Abbr Intercept tone: 440Hz 250ms ON, 620Hz 250ms ON
+		-1,	-1,	-1,	-1,	1,	0 }, //CDMA Abbr Intercept tone: 440Hz 250ms ON, 620Hz 250ms ON
 
 	{480,	620,	0,	 250,	0,	0,
 		0,	0,	0,	 250,	0,	0,
@@ -304,10 +308,10 @@ typedef struct st_tone
 
 	{660, 1000,	0,	500,	0,	0,
 		0,	0,	0,	100,	0,	0,
-		-1,	-1,	-1,	-1,	0,	0}, //CDMA answer tone: silent tone - defintion Frequency 0, 0ms ON, 0ms OFF
+		-1,	-1,	-1,	-1,	1,	0}, //CDMA answer tone: silent tone - defintion Frequency 0, 0ms ON, 0ms OFF
 
 	{440,	0,	0,	300,	0,	0,
-		-1,	-1,	-1,	-1,	0,	0}, //CDMA Network Callwaiting tone: 440Hz 300ms ON
+		-1,	-1,	-1,	-1,	1,	0}, //CDMA Network Callwaiting tone: 440Hz 300ms ON
 
 	{480,	0,	0,	100,	0,	0,
 		0,	0,	0,	100,	0,	0,
@@ -318,7 +322,7 @@ typedef struct st_tone
 	2090,	0,	0,	32,	0,	0,
 	2556,	0,	0,	48,	0,	0,
 	0,	0,	 0,	4000,	0,	0,
-		-1,	-1,	-1,	-1,	0,	0}, //ISDN Call Signal Normal tone: {2091Hz 32ms ON, 2556 64ms ON} 20 times, 2091 32ms ON, 2556 48ms ON, 4s OFF
+		-1,	-1,	-1,	-1,	1,	0}, //ISDN Call Signal Normal tone: {2091Hz 32ms ON, 2556 64ms ON} 20 times, 2091 32ms ON, 2556 48ms ON, 4s OFF
 
 	{2091,	0,	0,	32,	0,	0,
 	2556,	0,	0,	64,	7,	0,
@@ -328,7 +332,7 @@ typedef struct st_tone
 	2556,	0,	0,	64,	7,	4,
 	2091,	0,	0,	32,	0,	0,
 	0,	0,	0,	4000,	0,	0,
-		-1,	-1,	-1,	-1,	0,	0}, //ISDN Call Signal Intergroup tone: {2091Hz 32ms ON, 2556 64ms ON} 8 times, 2091Hz 32ms ON, 400ms OFF, {2091Hz 32ms ON, 2556Hz 64ms ON} 8times, 2091Hz 32ms ON, 4s OFF.
+		-1,	-1,	-1,	-1,	1,	0}, //ISDN Call Signal Intergroup tone: {2091Hz 32ms ON, 2556 64ms ON} 8 times, 2091Hz 32ms ON, 400ms OFF, {2091Hz 32ms ON, 2556Hz 64ms ON} 8times, 2091Hz 32ms ON, 4s OFF
 
 	{2091,	0,	0,	32,	0,	0,
 	2556,	0,	0,	64,	3,	0,
@@ -338,24 +342,24 @@ typedef struct st_tone
 	2556,	0,	0,	64,	3,	4,
 	2091,	0,	0,	32,	0,	0,
 		0,	0,	0,	200,	0,	0,
-		-1,	-1,	-1,	-1,	0,	0},//ISDN Call Signal SP PRI tone:{2091Hz 32ms ON, 2556 64ms ON} 4 times 2091Hz 16ms ON, 200ms OFF, {2091Hz 32ms ON, 2556Hz 64ms ON} 4 times, 2091Hz 16ms ON, 200ms OFF
+		-1,	-1,	-1,	-1,	1,	0},//ISDN Call Signal SP PRI tone:{2091Hz 32ms ON, 2556 64ms ON} 4 times 2091Hz 16ms ON, 200ms OFF, {2091Hz 32ms ON, 2556Hz 64ms ON} 4 times, 2091Hz 16ms ON, 200ms OFF
 
 	{0,	0,	0,	-1,	0,	0,
-	-1,	-1,	-1,	-1,	0,	0}, //ISDN Call sign PAT3 tone: silent tone
+	-1,	-1,	-1,	-1,	1,	0}, //ISDN Call sign PAT3 tone: silent tone
 
 	{2091,	0,	0,	32,	0,	0,
 	2556,	0,	0,	64,	4,	0,
 	2091,	0,	0,	20,	0,	0,
-		-1,	-1,	-1,	-1,	0,	0}, //ISDN Ping Ring tone: {2091Hz 32ms ON, 2556Hz 64ms ON} 5 times 2091Hz 20ms ON
+		-1,	-1,	-1,	-1,	1,	0}, //ISDN Ping Ring tone: {2091Hz 32ms ON, 2556Hz 64ms ON} 5 times 2091Hz 20ms ON
 
 	{0,	0,	0,	-1,	0,	0,
-	-1,	-1,	-1,	-1,	0,	0}, //ISDN Pat5 tone: silent tone
+	-1,	-1,	-1,	-1,	1,	0}, //ISDN Pat5 tone: silent tone
 
 	{0,	0,	0,	-1,	0,	0,
-	-1,	-1,	-1,	-1,	0,	0}, //ISDN Pat6 tone: silent tone
+	-1,	-1,	-1,	-1,	1,	0}, //ISDN Pat6 tone: silent tone
 
 	{0,	0,	0,	-1,	0,	0,
-	-1,	-1,	-1,	-1,	0,	0}, //ISDN Pat7 tone: silent tone
+	-1,	-1,	-1,	-1,	1,	0}, //ISDN Pat7 tone: silent tone
 
 	{3700,	0,	0,	25,	0,	0,
 	4000,	0,	0,	25,	39,	0,
@@ -453,7 +457,7 @@ typedef struct st_tone
 	3700,	0,	0,	25,	0,	0,
 	4000,	0,	0,	25,	9,	6,
 	0,	0,	0,	3000,	0,	0,
-		-1,	-1,	-1,	-1,	0,	0}, //CDMA HIGH SLS tone: {3700Hz 25ms, 4000Hz 25ms} 10 times, 500ms OFF, {3700Hz 25ms, 4000Hz 25ms} 20 times, 500ms OFF, {3700Hz 25ms, 4000Hz 25ms} 10 times, 3000ms OFF, REPEAT
+		-1,	-1,	-1,	-1,	0,	0}, //CDMA HIGH SLS tone: {3700Hz 25ms, 4000Hz 25ms} 10 times, 500ms OFF, {3700Hz 25ms, 4000Hz 25ms} 20 times, 500ms OFF, {3700Hz 25ms, 4000Hz 25ms} 10 times, 3000ms OFF, REPEAT....
 
 	{2600,	0,	0,	25,	0,	0,
 	2900,	0,	0,	25,	9,	0,
@@ -464,7 +468,7 @@ typedef struct st_tone
 	2600,	0,	0,	25,	0,	0,
 	2900,	0,	0,	25,	9,	6,
 	0,	0,	0,	3000,	0,	0,
-		-1,	-1,	-1,	-1,	0,	0}, //CDMA MED SLS tone: {2600Hz 25ms, 2900Hz 25ms} 10 times, 500ms OFF, {2600Hz 25ms, 2900Hz 25ms} 20 times, 500ms OFF, {2600Hz 25ms, 2900Hz 25ms} 10 times, 3000ms OFF, REPEAT
+		-1,	-1,	-1,	-1,	0,	0}, //CDMA MED SLS tone: {2600Hz 25ms, 2900Hz 25ms} 10 times, 500ms OFF, {2600Hz 25ms, 2900Hz 25ms} 20 times, 500ms OFF, {2600Hz 25ms, 2900Hz 25ms} 10 times, 3000ms OFF, REPEAT....
 
 	{1300,	0,	0,	25,	0,	0,
 	1450,	0,	0,	25,	9,	0,
@@ -475,7 +479,7 @@ typedef struct st_tone
 	1300,	0,	0,	25,	0,	0,
 	1450,	0,	0,	25,	9,	6,
 	0,	0,	0,	3000,	0,	0,
-		-1,	-1,	-1,	-1,	0,	0}, //CDMA LOW SLS tone: {1300Hz 25ms, 1450Hz 25ms} 10 times, 500ms OFF, {1300Hz 25ms, 1450Hz 25ms} 20 times, 500ms OFF, {1300Hz 25ms, 1450Hz 25ms} 10 times, 3000ms OFF, REPEAT//
+		-1,	-1,	-1,	-1,	0,	0}, //CDMA LOW SLS tone: {1300Hz 25ms, 1450Hz 25ms} 10 times, 500ms OFF, {1300Hz 25ms, 1450Hz 25ms} 20 times, 500ms OFF, {1300Hz 25ms, 1450Hz 25ms} 10 times, 3000ms OFF, REPEAT....
 
 	{3700,	0,	0,	25,	0,	0,
 	4000,	0,	0,	25,	9,	0,
@@ -653,7 +657,7 @@ typedef struct st_tone
 		740,	0,	0,	62,	0,	0,
 		622,	0,	0,	62,	0,	0,
 	1109,	0,	0,	62,	0,	0,
-		-1,	-1,	-1,	-1,	0,	0}, //CDMA Alert Network Lite tone: 1109Hz 62ms ON, 784Hz 62ms ON, 740Hz 62ms ON 622Hz 62ms ON, 1109Hz 62ms ON
+		-1,	-1,	-1,	-1,	1,	0}, //CDMA Alert Network Lite tone: 1109Hz 62ms ON, 784Hz 62ms ON, 740Hz 62ms ON 622Hz 62ms ON, 1109Hz 62ms ON
 
 	{1245,	0,	0,	62,	0,	0,
 	659,	0,	0,	62,	0,	0,
@@ -662,17 +666,17 @@ typedef struct st_tone
 	1245,	0,	0,	62,	0,	0,
 	659,	0,	0,	62,	0,	0,
 	1245,	0,	0,	62,	0,	0,
-		-1,	-1,	-1,	-1,	0,	0},//CDMA Alert Auto Redial tone: {1245Hz 62ms ON, 659Hz 62ms ON} 3 times, 1245 62ms ON//
+		-1,	-1,	-1,	-1,	1,	0},//CDMA Alert Auto Redial tone: {1245Hz 62ms ON, 659Hz 62ms ON} 3 times, 1245 62ms ON//
 
 	{1150,	770, 0,  400, 0,	0,
-		-1,	-1,	-1,	-1,	0,	0}, //CDMA One Min Beep tone: 1150Hz+770Hz 400ms ON//
+		-1,	-1,	-1,	-1,	1,	0}, //CDMA One Min Beep tone: 1150Hz+770Hz 400ms ON//
 
 	{941, 1477,	0,  120, 0,	0,
-		-1,	-1,	-1,	-1,	0,	0}, //CDMA KEYPAD Volume key lite tone: 941Hz+1477Hz 120ms ON
+		-1,	-1,	-1,	-1,	1,	0}, //CDMA KEYPAD Volume key lite tone: 941Hz+1477Hz 120ms ON
 
 	{587,	0,	 0, 375, 0,	0,
 	1175,	0,	 0, 125, 0,	0,
-		-1,	-1,	-1,	-1,	0,	0}, //CDMA PRESSHOLDKEY LITE tone: 587Hz 375ms ON, 1175Hz 125ms ON
+		-1,	-1,	-1,	-1,	1,	0}, //CDMA PRESSHOLDKEY LITE tone: 587Hz 375ms ON, 1175Hz 125ms ON
 
 	{587,	0,	0,	62, 0,	0,
 	784,		0,	0,	62, 0,	0,
@@ -682,7 +686,7 @@ typedef struct st_tone
 	784, 	0,	0,	62, 0,	0,
 	831,		0,	0,	62, 0,	0,
 	784, 	0,	0,	62, 0,	0,
-		-1,	-1,	-1,	-1,	0,	0}, //CDMA ALERT INCALL LITE tone: 587Hz 62ms, 784 62ms, 831Hz 62ms, 784Hz 62ms, 1109 62ms, 784Hz 62ms, 831Hz 62ms, 784Hz 62ms
+		-1,	-1,	-1,	-1,	1,	0}, //CDMA ALERT INCALL LITE tone: 587Hz 62ms, 784 62ms, 831Hz 62ms, 784Hz 62ms, 1109 62ms, 784Hz 62ms, 831Hz 62ms, 784Hz 62ms
 
 	{941,	0,	0,	125,	0,	0,
 		0,	0,	0,	10,	0,	0,
@@ -699,29 +703,42 @@ typedef struct st_tone
 
 	{1047,	0,	0,	125,	0,	0,
 		370,	0,	0,	125,	0,	0,
-		-1,	-1,	-1,	-1,	0,	0}, //CDMA SOFT ERROR LITE tone: 1047Hz 125ms ON, 370Hz 125ms
+		-1,	-1,	-1,	-1,	1,	0}, //CDMA SOFT ERROR LITE tone: 1047Hz 125ms ON, 370Hz 125ms
 
 	{1480,	0,	0,	125,	0,	0,
 	1397,	0,	0,	125,	0,	0,
 	784,	0,	0,	125,	0,	0,
-		-1,	-1,	-1,	-1,	0,	0}, //CDMA CALLDROP LITE tone: 1480Hz 125ms, 1397Hz 125ms, 784Hz 125ms//
+		-1,	-1,	-1,	-1,	1,	0}, //CDMA CALLDROP LITE tone: 1480Hz 125ms, 1397Hz 125ms, 784Hz 125ms//
 
 	{425,	0,	0,	125,	0,	0,
 		0,	0,	0,	125,	0,	0,
-		-1,	-1,	-1,	-1,	0,	0},//CDMA_NETWORK_BUSY_ONE_SHOT tone: 425Hz 500ms ON, 500ms OFF.
+		-1,	-1,	-1,	-1,	1,	0},//CDMA_NETWORK_BUSY_ONE_SHOT tone: 425Hz 500ms ON, 500ms OFF
 
 	{1150,	770,	0,	400,	0,	0,
-		-1,	-1,	-1,	-1,	0,	0}, //CDMA_ABBR_ALERT tone: 1150Hz+770Hz 400ms ON
+		-1,	-1,	-1,	-1,	1,	0}, //CDMA_ABBR_ALERT tone: 1150Hz+770Hz 400ms ON
 
 	{0,	0,	0,	-1,	0,	0,
-	-1,	-1,	-1,	-1,	0,	0}, //CDMA_SIGNAL_OFF - silent tone
- };
+	-1,	-1,	-1,	-1,	1,	0}, //CDMA_SIGNAL_OFF - silent tone
 
+	{100,	0,	0,	-1,	0,	0,
+	-1,	-1,	-1,	-1,	0,	0}, //100Hz continuous
+
+	{200,	0,	0,	-1,	0,	0,
+	-1,	-1,	-1,	-1,	0,	0}, //200Hz continuous
+
+	{300,	0,	0,	-1,	0,	0,
+	-1,	-1,	-1,	-1,	0,	0}, //300Hz continuous
+};
+
+#if 0
 static tone_control_t g_control;
-static int (*g_thread_pool_func)(void*, void (*)(void*)) = NULL;
+#endif
 
+static int (*g_thread_pool_func)(void*, void (*)(void*)) = NULL;
+#if 0
 static int _MMSoundToneInit(void);
 static int _MMSoundToneFini(void);
+#endif
 static void _running_tone(void *param);
 
 
@@ -744,10 +761,13 @@ int MMSoundPlugCodecToneParse(MMSourceType *source, mmsound_codec_info_t *info)
 
 int MMSoundPlugCodecToneCreate(mmsound_codec_param_t *param, mmsound_codec_info_t *info, MMHandleType *handle)
 {
-	avsys_audio_param_t audio_param;
 	tone_info_t *toneInfo;
+	pa_sample_spec ss;
+	mm_sound_handle_route_info route_info;
 
-	int result = AVSYS_STATE_SUCCESS;
+	int size;
+
+	int result = MM_ERROR_NONE;
 
 	debug_enter("\n");
 
@@ -761,29 +781,21 @@ int MMSoundPlugCodecToneCreate(mmsound_codec_param_t *param, mmsound_codec_info_
 
 	toneInfo->state = STATE_READY;
 
-	/* set audio param */
-	memset (&audio_param, 0, sizeof(avsys_audio_param_t));
+	ss.rate = SAMPLERATE;
+	ss.channels = CHANNELS;
+	ss.format = PA_SAMPLE_S16LE;
+	route_info.policy = HANDLE_ROUTE_POLICY_OUT_AUTO;
 
-	/* Set sound player parameter */
-	audio_param.samplerate = SAMPLERATE;
-	audio_param.channels = CHANNELS;
-	audio_param.format = AVSYS_AUDIO_FORMAT_16BIT;
-	audio_param.mode = AVSYS_AUDIO_MODE_OUTPUT;
-	audio_param.vol_type = param->volume_table;
-	audio_param.priority = AVSYS_AUDIO_PRIORITY_0;
-
-
-	result = avsys_audio_open(&audio_param, &toneInfo->audio_handle, &toneInfo->size);
-	if(AVSYS_FAIL(result))	{
+	toneInfo->handle = mm_sound_pa_open(HANDLE_MODE_OUTPUT, &route_info, HANDLE_PRIORITY_NORMAL, param->volume_config, &ss, NULL, &size);
+	if (!toneInfo->handle) {
 		debug_error("Device Open Error 0x%x\n", result);
 		goto Error;
 	}
-	debug_log("Create audio_handle is %d\n", toneInfo->audio_handle);
-
+	debug_log("Create audio_handle is %lu\n", toneInfo->handle);
 
 	debug_msg("tone : %d\n", param->tone);
 	debug_msg("repeat : %d\n", param->repeat_count);
-	debug_msg("volume table : %d\n", param->volume_table);
+	debug_msg("volume config : %x\n", param->volume_config);
 	debug_msg("callback : %p\n", param->stop_cb);
 	debug_msg("pid : %d\n", param->pid);
 
@@ -801,16 +813,17 @@ int MMSoundPlugCodecToneCreate(mmsound_codec_param_t *param, mmsound_codec_info_
 		goto Error;
 	}
 
-	*handle = toneInfo;
+	*handle = (MMHandleType)toneInfo;
 
 	debug_leave("\n");
 	return MM_ERROR_NONE;
 
 Error:
 	if(toneInfo) {
-		if(toneInfo->audio_handle)
-			avsys_audio_close(toneInfo->audio_handle);
-
+		if(toneInfo->handle) {
+			if(MM_ERROR_NONE != mm_sound_pa_close(toneInfo->handle))
+				debug_error("mm_sound_pa_close() fail. handle(%lu)\n", toneInfo->handle);
+		}
 		free(toneInfo);
 	}
 
@@ -852,18 +865,27 @@ int MMSoundPlugCodecTonePlay(MMHandleType handle)
 }
 
 static char*
-_create_tone (double *sample, TONE _TONE, double volume, int *toneSize)
+_create_tone(double *sample, TONE _TONE, double volume, int *toneSize, gboolean is_cycle_ended)
 {
 	short *pbuf;
 	double i = 0;
 	double amplitude, f1, f2, f3;
-	double volume_factor;
 	int quota= 0;
-	int DEFAULT_PACKET_INTERVAL = 10;
-	float low_frequency		= _TONE.low_frequency;
-	float middle_frequency	= _TONE.middle_frequency;
-	float high_frequency		= _TONE.high_frequency;
+	float low_frequency;
+	float middle_frequency;
+	float high_frequency;
 	int sample_size = 0;
+	char* buffer;
+
+	if(is_cycle_ended) {
+		low_frequency		= 0;
+		middle_frequency		= 0;
+		high_frequency		= 0;
+	} else {
+		low_frequency		= _TONE.low_frequency;
+		middle_frequency		= _TONE.middle_frequency;
+		high_frequency		= _TONE.high_frequency;
+	}
 
 	if(sample == NULL) {
 		debug_error("Sample buffer is not allocated\n");
@@ -879,9 +901,10 @@ _create_tone (double *sample, TONE _TONE, double volume, int *toneSize)
 	*toneSize = ((*toneSize+1)>>1)<<1;
 	sample_size = (*toneSize) / (SAMPLE_SIZE / 8);
 
-	debug_log("_TONE.playing_time: %d toneSize: %d\n", _TONE.playingTime, *toneSize);
-	char* buffer = g_malloc (*toneSize);
+	debug_log("%0.f, %0.f, %0.f _TONE.playing_time: %d toneSize: %d\n",
+			low_frequency, middle_frequency, high_frequency, _TONE.playingTime, *toneSize);
 
+	buffer = g_malloc (*toneSize);
 	if(buffer == NULL) {
 		debug_error("Buffer is not allocated\n");
 		return NULL;
@@ -981,13 +1004,13 @@ _mm_get_CurIndex(TONE _TONE, int *CurArrayPlayCnt, int *CurIndex)
 	} else {
 		(*CurIndex)++;
 	}
-	debug_log("CurIndex: %d, CurArrayPlayCnt :%d", *CurIndex, *CurArrayPlayCnt);
+	debug_log("[%d] CurIndex: %d", *CurArrayPlayCnt, *CurIndex);
 	return ret;
 }
 
 static void _running_tone(void *param)
 {
-	int result = AVSYS_STATE_SUCCESS;
+	int result = MM_ERROR_NONE;
 	char *ptoneBuf = NULL;
 	char filename[100];
 
@@ -1007,6 +1030,7 @@ static void _running_tone(void *param)
 	int waveRestPlayTime = 0;
 	int CurIndex = 0;
 	int CurArrayPlayCnt = 0;
+	gboolean is_cycle_ended = FALSE;
 
 	debug_enter("\n");
 	double sample = 0;
@@ -1033,16 +1057,26 @@ static void _running_tone(void *param)
 			debug_error("_mm_get_waveCnt_PlayingTime return value error\n");
 			goto exit;
 		}
+
+		if(_mm_get_CurIndex(_TONE, &CurArrayPlayCnt, &CurIndex) != MM_ERROR_NONE) {
+			debug_error("_mm_get_CurIndex return value error\n");
+			goto exit;
+		}
+
 		debug_log ("Predefined Tone[%d] Total Play time (ms) : %d, _TONE.playing_time: %d _numWave = %d low_frequency: %0.f, middle_frequency: %0.f, high_frequency: %0.f\n",
 			CurIndex, toneTime, _TONE.playingTime, numWave, _TONE.low_frequency, _TONE.middle_frequency, _TONE.high_frequency);
 
+
 		if (_TONE.low_frequency == -1) { /* skip frequency which's value is -1*/
+			if((_TONE.loopCnt > 0) && (CurArrayPlayCnt == _TONE.loopCnt)) {
+				is_cycle_ended = TRUE;
+				debug_log("[is_cycle_ended]");
+			}
 			CurIndex = _TONE.loopIndx;
 			continue;
 		}
 
 		/* Write pcm data */
-
 		for(CurWaveIndex = 0; CurWaveIndex < numWave+1; CurWaveIndex++) {
 			if(CurWaveIndex == numWave ) { /* play the last tone set*/
 				playingTime = waveRestPlayTime;
@@ -1059,13 +1093,13 @@ static void _running_tone(void *param)
 				playingTime = toneTime - prePlayingTime;
 			}
 
-			ptoneBuf = _create_tone (&sample, _TONE, toneInfo->volume, &toneSize);
+			ptoneBuf = _create_tone(&sample, _TONE, toneInfo->volume, &toneSize, is_cycle_ended);
 			if(ptoneBuf == NULL) {
 				debug_error("Tone Buffer is not allocated\n");
 				goto exit;
 			}
 			debug_log ("[TONE] Play.....%dth %dms\n", CurWaveIndex, playingTime);
-			avsys_audio_write(toneInfo->audio_handle, ptoneBuf, ((toneSize * playingTime /duration + 1)>>1)<<1);
+			mm_sound_pa_write(toneInfo->handle, ptoneBuf, ((toneSize * playingTime /duration + 1)>>1)<<1);
 			prePlayingTime += playingTime;
 			debug_log ("previous_sum: %d\n", prePlayingTime);
 			g_free (ptoneBuf);
@@ -1073,32 +1107,27 @@ static void _running_tone(void *param)
 
 			if(prePlayingTime == toneTime || toneInfo->state != STATE_PLAY) {
 				debug_log ("Finished.....on Total Playing Time : %d _TONE.playing_time: %d\n", prePlayingTime, _TONE.playingTime);
-				avsys_audio_drain(toneInfo->audio_handle);
+				mm_sound_pa_drain(toneInfo->handle);
 				debug_log ("Finished.....quit loop\n");
 				goto exit;
 			}
+			debug_log ("[%d] CurIndex: %d previous_sum: %d\n", CurArrayPlayCnt, CurIndex, prePlayingTime);
 		}
-		if(_mm_get_CurIndex(_TONE, &CurArrayPlayCnt, &CurIndex) != MM_ERROR_NONE) {
-			debug_error("_mm_get_CurIndex return value error\n");
-			goto exit;
-		}
-
-		debug_log ("CurIndex: %d previous_sum: %d CurArrayPlayCnt: %d\n", CurIndex, prePlayingTime, CurArrayPlayCnt);
 	}
 
 exit :
-	result = avsys_audio_close(toneInfo->audio_handle);
-	if(AVSYS_FAIL(result))	{
-		debug_error("Device Close Error 0x%x\n", result);
-	}
+	if(MM_ERROR_NONE != mm_sound_pa_close(toneInfo->handle))
+		debug_error("mm_sound_pa_close() fail. handle(%lu)\n", toneInfo->handle);
 
+#if 0
 	pthread_mutex_destroy(&g_control.syncker);
+#endif
 
 	debug_msg("Play end\n");
-	toneInfo->state = STATE_STOP;
+	toneInfo->state = STATE_NONE;
 
 	if (toneInfo->stop_cb)
-	    toneInfo->stop_cb(toneInfo->cb_param);
+		toneInfo->stop_cb(toneInfo->cb_param);
 
 	debug_leave("\n");
 }
@@ -1111,6 +1140,11 @@ int MMSoundPlugCodecToneStop(MMHandleType handle)
 	debug_enter("(handle %x)\n", handle);
 	toneInfo->state = STATE_STOP;
 	debug_msg("sent stop signal\n");
+
+	while(toneInfo->state != STATE_NONE) {
+		usleep(30000);
+	}
+
 	debug_leave("\n");
 
 	return MM_ERROR_NONE;
@@ -1125,6 +1159,7 @@ int MMSoundPlugCodecToneSetThreadPool(int (*func)(void*, void (*)(void*)))
     return MM_ERROR_NONE;
 }
 
+#if 0
 static int _MMSoundToneInit(void)
 {
 	memset(&g_control, 0, sizeof(tone_control_t));
@@ -1137,6 +1172,7 @@ static int _MMSoundToneFini(void)
 	pthread_mutex_destroy(&g_control.syncker);
 	return MM_ERROR_NONE;
 }
+#endif
 
 EXPORT_API
 int MMSoundGetPluginType(void)

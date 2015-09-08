@@ -26,6 +26,7 @@
 #include <stdio.h>
 #include <sys/types.h>
 #include <fcntl.h>
+#include <vconf.h>
 
 #include <sys/stat.h>
 #include <errno.h>
@@ -37,32 +38,40 @@
 #include <mm_sound.h>
 #include <mm_sound_private.h>
 
+#include "include/mm_sound_common.h"
+
 #define KEYTONE_PATH "/tmp/keytone"		/* Keytone pipe path */
 #define FILE_FULL_PATH 1024				/* File path lenth */
+
 typedef struct {
-	char filename[1024];
-	int vol_type;
-}ipc_t;
+	char filename[FILE_FULL_PATH];
+	int volume_config;
+} ipc_t;
 
 EXPORT_API
-int mm_sound_play_keysound(const char *filename, const volume_type_t vol_type)
+int mm_sound_play_keysound(const char *filename, int volume_config)
 {
 	int err = MM_ERROR_NONE;
 	int fd = -1;
 	int size = 0;
 	ipc_t data = {{0,},};
+	int capture_status = 0;
 
-	debug_fenter();
-
-	if(!filename)
+	if (!filename)
 		return MM_ERROR_SOUND_INVALID_FILE;
+
+	/*  Check whether audio is recording */
+	vconf_get_int(VCONFKEY_RECORDER_STATE, &capture_status);
+	if(capture_status == VCONFKEY_RECORDER_STATE_RECORDING) {
+		debug_warning ("MUTE keysound during sound capture!!!, capture status=%d", capture_status);
+		return MM_ERROR_NONE;
+	}
 
 	/* Check whether file exists */
 	fd = open(filename, O_RDONLY);
-	if(fd == -1) {
+	if (fd == -1) {
 		debug_error("file open failed with [%s][%d]\n", strerror(errno), errno);
-		switch(errno)
-		{
+		switch (errno) {
 		case ENOENT:
 			return MM_ERROR_SOUND_FILE_NOT_FOUND;
 		default:
@@ -78,22 +87,22 @@ int mm_sound_play_keysound(const char *filename, const volume_type_t vol_type)
 		debug_error("Fail to open pipe\n");
 		return MM_ERROR_SOUND_FILE_NOT_FOUND;
 	}
-	data.vol_type = vol_type;
-	strncpy(data.filename, filename, FILE_FULL_PATH);
-	debug_msg("The file name [%s]\n", data.filename);
+	data.volume_config = volume_config;
+	MMSOUND_STRNCPY(data.filename, filename, FILE_FULL_PATH);
+
+	debug_msg("filepath=[%s], volume_config=[0x%x]\n", data.filename, volume_config);
 	size = sizeof(ipc_t);
 
 	/* Write to PIPE */
 	err = write(fd, &data, size);
-	if(err < 0) {
-		debug_error("Fail to write data: %s\n", strerror(err));
+	if (err < 0) {
+		debug_error("Fail to write data: [%s][%d]\n", strerror(errno), errno);
 		close(fd);
 		return MM_ERROR_SOUND_INTERNAL;
 	}
 	/* Close PIPE */
 	close(fd);
 
-	debug_fleave();
 	return MM_ERROR_NONE;
 }
 
