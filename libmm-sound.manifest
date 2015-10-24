@@ -1,12 +1,29 @@
 <manifest>
 	<define>
 		<domain name="sound_server"/>
+		<request>
+			<smack request="tizen::vconf::public::r" type="rw"/>
+			<smack request="tizen::vconf::public::rw" type="rw"/>
+			<smack request="tizen::vconf::platform::r" type="rw"/>
+			<smack request="tizen::vconf::platform::rw" type="rw"/>
+			<smack request="tizen::vconf::volume::set" type="rw"/>
+			<smack request="tizen::vconf::setting::admin" type="rl"/>
+			<smack request="tizen::vconf::setting" type="rl"/>
+			<smack request="tizen::vconf::camcorder" type="rl"/>
+			<smack request="system::share" type="arwxt"/>
+			<smack request="system::homedir" type="arwxt"/>
+			<smack request="system::media" type="arwxt"/>
+			<smack request="device::sys_logging" type="w"/>
+			<smack request="device::app_logging" type="w"/>
+			<smack request="sys-assert::core" type="arwxt"/>
+			<smack request="pulseaudio" type="arwxt"/>
+		</request>
 	</define>
 	<request>
 		<domain name="_"/>
 	</request>
 	<assign>
 		<filesystem path="/usr/bin/sound_server" label="sound_server" exec_label="sound_server"/>
-		<filesystem path="/opt/etc/dump.d/module.d/dump_audio.sh" exec_label="none"/>
+		<filesystem path="/opt/etc/dump.d/module.d/dump_audio.sh" label="_" exec_label="none"/>
 	</assign>
 </manifest>

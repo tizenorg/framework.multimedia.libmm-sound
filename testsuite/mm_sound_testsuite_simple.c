@@ -55,6 +55,11 @@ enum {
     CURRENT_STATUS_FILENAME = 1,
     CURRENT_STATUS_POSITION = 2,
     CURRENT_STATUS_DIRNAME = 3,
+#ifdef TIZEN_TV
+    CURRENT_STATUS_MASTERVOLUME = 4,
+    CURRENT_STATUS_MASTERMUTE = 5,
+    CURRENT_STATUS_OUTPUTDEVICE = 6,
+#endif
 };
 
 int g_menu_state = CURRENT_STATUS_MAINMENU;
@@ -187,7 +192,8 @@ static void displaymenu()
 		g_print("c : play sound ex \t");
 		g_print("F : Play DTMF     \t");
 		g_print("b : Play directory\n");
-		g_print("s : Stop play     \n");
+		g_print("s : Stop play     \t");
+		g_print("m : stereo to mono\n");
 		g_print("==================================================================\n");
 		g_print("	Volume APIs\n");
 		g_print("==================================================================\n");
@@ -200,8 +206,6 @@ static void displaymenu()
 		g_print("g : Get voice   \t");
 		g_print("h : Inc. voice  \t");
 		g_print("j : Dec. voice  \n");
-		g_print("B : Set audio balance\n");
-		g_print("M : Set mute all\n");
 		g_print("==================================================================\n");
 		g_print("	Audio route APIs\n");
 		g_print("==================================================================\n");
@@ -231,6 +235,19 @@ static void displaymenu()
 		g_print("Q : Add device info. changed callback \t");
 		g_print("W : Remove device info. changed callback \n");
 		g_print("==================================================================\n");
+#ifdef TIZEN_TV
+		g_print("	TV profile APIs\n");
+		g_print("==================================================================\n");
+		g_print("sm : Set master mute \t");
+		g_print("gm : Get master mute \n");
+		g_print("sv : Set master volume \t");
+		g_print("gv : Get master volume \n");
+		g_print("sd : Set output device \t");
+		g_print("gd : Get output device \n");
+		g_print("sc : Set master volume/mute, output device changed cb \n");
+		g_print("uc : Unset master volume/mute, output device changed cb \n");
+		g_print("==================================================================\n");
+#endif
 		g_print("d : Input Directory \t");
 		g_print("f : Input File name \t");
 		g_print("x : Exit Program \n");
@@ -241,7 +258,7 @@ static void displaymenu()
 		g_print(">>>>Input file name to play : ");
 	}
 	else if (g_menu_state == CURRENT_STATUS_DIRNAME) {
-			g_print(">>>>Input directory which contain audio files : ");
+		g_print(">>>>Input directory which contain audio files : ");
 	}
 	else {
 		g_print("**** Unknown status.\n");
@@ -353,13 +370,36 @@ static void __mm_sound_active_device_changed_cb (mm_sound_device_in device_in, m
 	g_print ("[%s] in[0x%08x][%s], out[0x%08x][%s]\n", __func__,
 			device_in, __get_capture_device_str(device_in), device_out, __get_playback_device_str(device_out));
 }
+#ifdef TIZEN_TV
+int g_user_data_tv = 0;
+void master_volume_changed_callback (unsigned int value, void* user_data)
+{
+	g_print("master_volume_changed_callback is called, value(%d), user_data(%p)\n", value, user_data);
+	return;
+}
 
+void master_mute_changed_callback (unsigned int value, void* user_data)
+{
+	g_print("master_mute_changed_callback is called, value(%d), user_data(%p)\n", value, user_data);
+	return;
+}
+
+void output_device_changed_callback (mm_sound_tv_output_device_t route, void* user_data)
+{
+	g_print("output_device_changed_callback is called, route(%d), user_data(%p)\n", route, user_data);
+	return;
+}
+#endif
 static void interpret (char *cmd)
 {
 	int ret=0;
 	static int handle = -1;
 	MMSoundPlayParam soundparam = {0,};
-
+#ifdef TIZEN_TV
+	unsigned int mastervolume = 0;
+	int mastermute = 0;
+	int outputdevice = 0;
+#endif
 	switch (g_menu_state)
 	{
 		case CURRENT_STATUS_MAINMENU:
@@ -369,6 +409,100 @@ static void interpret (char *cmd)
 				if(ret < 0)
 					debug_log("keysound play failed with 0x%x\n", ret);
 			}
+#ifdef TIZEN_TV
+			else if(strncmp(cmd, "sv", 2) == 0)
+			{//set master volume
+				g_menu_state = CURRENT_STATUS_MASTERVOLUME;
+				g_print(">>>>Input volume level : ");
+			}
+			else if(strncmp(cmd, "gv", 2) == 0)
+			{//get master volume
+				unsigned int value = 100;
+				ret = mm_sound_volume_get_master(&value);
+				if(ret < 0) {
+					debug_log("mm_sound_volume_get_master 0x%x\n", ret);
+				}
+				else{
+					g_print("*** MASTER VOLUME : %u ***\n", value);
+				}
+			}
+			else if(strncmp(cmd, "sm", 2) == 0)
+			{//set master mute
+				g_menu_state = CURRENT_STATUS_MASTERMUTE;
+				g_print(">>>>Input mute state (0 : unmute, 1 : mute) : ");
+			}
+			else if(strncmp(cmd, "gm", 2) == 0)
+			{//get master mute
+				bool value = 0;
+				ret = mm_sound_mute_get_master(&value);
+				if(ret < 0) {
+					debug_log("mm_sound_mute_get_master 0x%x\n", ret);
+				}
+				else{
+					g_print("*** MASTER MUTE : %d ***\n", value);
+				}
+			}
+			else if(strncmp(cmd, "sd", 2) == 0)
+			{//set output device
+				g_menu_state = CURRENT_STATUS_OUTPUTDEVICE;
+				g_print(">>>>Input output device : ");
+			}
+			else if(strncmp(cmd, "gd", 2) == 0)
+			{//get output device
+				mm_sound_tv_output_device_t value = 0;
+				ret = mm_sound_get_output_device(&value);
+				if(ret < 0) {
+					debug_log("mm_sound_get_output_device 0x%x\n", ret);
+				}
+				else{
+					g_print("*** OUTPUT DEVICE : %d ***\n", value);
+				}
+			}
+			else if(strncmp(cmd, "sc", 2) == 0)
+			{//set callback functions
+				ret = 0;
+				ret = mm_sound_set_master_volume_changed_callback(master_volume_changed_callback, &g_user_data_tv);
+				if (ret == MM_ERROR_NONE) {
+					g_print ("### mm_sound_set_master_volume_changed_callback(), func(%p), user_data(%p) Success\n", master_volume_changed_callback, &g_user_data_tv);
+				} else {
+					g_print ("### mm_sound_set_master_volume_changed_callback() Error = %x\n", ret);
+				}
+				ret = mm_sound_set_master_mute_changed_callback(master_mute_changed_callback, &g_user_data_tv);
+				if (ret == MM_ERROR_NONE) {
+					g_print ("### mm_sound_set_master_mute_changed_callback(), func(%p), user_data(%p) Success\n", master_mute_changed_callback, &g_user_data_tv);
+				} else {
+					g_print ("### mm_sound_set_master_mute_changed_callback() Error = %x\n", ret);
+				}
+				ret = mm_sound_set_output_device_changed_callback(output_device_changed_callback, &g_user_data_tv);
+				if (ret == MM_ERROR_NONE) {
+					g_print ("### mm_sound_set_output_device_changed_callback(), func(%p), user_data(%p) Success\n", output_device_changed_callback, &g_user_data_tv);
+				} else {
+					g_print ("### mm_sound_set_output_device_changed_callback() Error = %x\n", ret);
+				}
+			}
+			else if(strncmp(cmd, "uc", 2) == 0)
+			{//unset callback functions
+				ret = 0;
+				ret = mm_sound_unset_master_volume_changed_callback();
+				if (ret == MM_ERROR_NONE) {
+					g_print ("### mm_sound_unset_master_volume_changed_callback()\n");
+				} else {
+					g_print ("### mm_sound_unset_master_volume_changed_callback() Error = %x\n", ret);
+				}
+				ret = mm_sound_unset_master_mute_changed_callback();
+				if (ret == MM_ERROR_NONE) {
+					g_print ("### mm_sound_unset_master_mute_changed_callback()\n");
+				} else {
+					g_print ("### mm_sound_unset_master_mute_changed_callback() Error = %x\n", ret);
+				}
+				ret = mm_sound_unset_output_device_changed_callback();
+				if (ret == MM_ERROR_NONE) {
+					g_print ("### mm_sound_unset_output_device_changed_callback()\n");
+				} else {
+					g_print ("### mm_sound_unset_output_device_changed_callback() Error = %x\n", ret);
+				}
+			}
+#endif
 			else if(strncmp(cmd, "q", 1) == 0)
 			{//get media volume
 				unsigned int value = 100;
@@ -530,61 +664,6 @@ static void interpret (char *cmd)
 					}
 				}
 			}
-
-			else if(strncmp(cmd, "B", 1) == 0)
-			{
-				int ret = 0;
-				char input_string[128];
-				float balance;
-
-				fflush(stdin);
-				ret = mm_sound_volume_get_balance(&balance);
-				if (ret == MM_ERROR_NONE) {
-					g_print ("### mm_sound_volume_get_balance Success, balance=%f\n", balance);
-				} else {
-					g_print ("### mm_sound_volume_get_balance Error = %x\n", ret);
-				}
-				g_print("> Enter new audio balance (current is %f) : ", balance);
-				if (fgets(input_string, sizeof(input_string)-1, stdin) == NULL) {
-					g_print ("### fgets return  NULL\n");
-				}
-
-				balance = atof (input_string);
-				ret = mm_sound_volume_set_balance(balance);
-				if (ret == MM_ERROR_NONE) {
-					g_print ("### mm_sound_volume_set_balance(%f) Success\n", balance);
-				} else {
-					g_print ("### mm_sound_volume_set_balance(%f) Error = %x\n", balance, ret);
-				}
-			}
-
-			else if(strncmp(cmd, "M", 1) == 0)
-			{
-				int ret = 0;
-				char input_string[128];
-				int muteall;
-
-				fflush(stdin);
-				ret = mm_sound_get_muteall(&muteall);
-				if (ret == MM_ERROR_NONE) {
-					g_print ("### mm_sound_get_muteall Success, muteall=%d\n", muteall);
-				} else {
-					g_print ("### mm_sound_get_muteall Error = %x\n", ret);
-				}
-				g_print("> Enter new muteall state (current is %d) : ", muteall);
-				if (fgets(input_string, sizeof(input_string)-1, stdin) == NULL) {
-					g_print ("### fgets return  NULL\n");
-				}
-
-				muteall = atoi (input_string);
-				ret = mm_sound_set_muteall(muteall);
-				if (ret == MM_ERROR_NONE) {
-					g_print ("### mm_sound_set_muteall(%d) Success\n", muteall);
-				} else {
-					g_print ("### mm_sound_set_muteall(%d) Error = %x\n", muteall, ret);
-				}
-			}
-
 			else if(strncmp(cmd, "a", 1) == 0)
 			{
 				debug_log("volume is %d type, %d\n", g_volume_type, g_volume_value);
@@ -1307,6 +1386,43 @@ static void interpret (char *cmd)
 		break;
 	case CURRENT_STATUS_POSITION:
 		break;
+#ifdef TIZEN_TV
+	case CURRENT_STATUS_MASTERVOLUME:
+		mastervolume = atoi(cmd);
+		ret = mm_sound_volume_set_master(mastervolume);
+		if(ret < 0) {
+			debug_log("mm_sound_volume_set_master 0x%x\n", ret);
+		}
+		else{
+			g_print("*** MASTER VOLUME : %u ***\n", mastervolume);
+		}
+		g_menu_state=CURRENT_STATUS_MAINMENU;
+		break;
+
+	case CURRENT_STATUS_MASTERMUTE:
+		mastermute = atoi(cmd);
+		ret = mm_sound_mute_set_master((bool)mastermute);
+		if(ret < 0) {
+			debug_log("mm_sound_mute_set_master 0x%x\n", ret);
+		}
+		else{
+			g_print("*** MASTER MUTE : %u ***\n", mastermute);
+		}
+		g_menu_state=CURRENT_STATUS_MAINMENU;
+		break;
+
+	case CURRENT_STATUS_OUTPUTDEVICE:
+		outputdevice = atoi(cmd);
+		ret = mm_sound_set_output_device((mm_sound_tv_output_device_t)outputdevice);
+		if(ret < 0) {
+			debug_log("mm_sound_set_output_device 0x%x\n", ret);
+		}
+		else{
+			g_print("*** OUTPUT DEVICE : %u ***\n", outputdevice);
+		}
+		g_menu_state=CURRENT_STATUS_MAINMENU;
+		break;
+#endif
 	}
 	//g_timeout_add(100, timeout_menu_display, 0);
 }
@@ -1315,14 +1431,6 @@ void volume_change_callback(volume_type_t type, unsigned int volume, void *user_
 {
 	if (type == VOLUME_TYPE_MEDIA)
 		g_print("Volume Callback Runs :::: MEDIA VALUME %d\n", volume);
-}
-
-void muteall_change_callback(void* data)
-{
-	int  muteall;
-
-	mm_sound_get_muteall(&muteall);
-	g_print("Muteall Callback Runs :::: muteall value = %d\n", muteall);
 }
 
 void audio_route_policy_changed_callback(void* data, system_audio_route_t policy)
@@ -1360,7 +1468,6 @@ int main(int argc, char *argv[])
 	g_print("\nThe input filename is '%s' \n\n",g_file_name);
 
 	mm_sound_add_volume_changed_callback(volume_change_callback, (void*) &g_volume_type);
-	mm_sound_muteall_add_callback(muteall_change_callback);
 	displaymenu();
 	g_main_loop_run (g_loop);
 

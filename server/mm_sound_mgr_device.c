@@ -54,6 +54,7 @@
 
 #define MAX_SUPPORT_DEVICE_NUM    256
 static char g_device_id_array[MAX_SUPPORT_DEVICE_NUM];
+static pthread_mutex_t g_device_id_array_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 void _mm_sound_get_devices_from_route(mm_sound_route route, mm_sound_device_in *device_in, mm_sound_device_out *device_out);
 
@@ -77,7 +78,7 @@ connected_device_list_s g_connected_device_list_s;
 
 static int _mm_sound_mgr_device_volume_callback(keynode_t* node, void* data);
 
-static char *g_volume_vconf[VOLUME_TYPE_MAX] = {
+static char *g_volume_vconf[VOLUME_TYPE_VCONF_MAX] = {
 	VCONF_KEY_VOLUME_TYPE_SYSTEM,       /* VOLUME_TYPE_SYSTEM */
 	VCONF_KEY_VOLUME_TYPE_NOTIFICATION, /* VOLUME_TYPE_NOTIFICATION */
 	VCONF_KEY_VOLUME_TYPE_ALARM,        /* VOLUME_TYPE_ALARM */
@@ -86,7 +87,6 @@ static char *g_volume_vconf[VOLUME_TYPE_MAX] = {
 	VCONF_KEY_VOLUME_TYPE_CALL,         /* VOLUME_TYPE_CALL */
 	VCONF_KEY_VOLUME_TYPE_VOIP,         /* VOLUME_TYPE_VOIP */
 	VCONF_KEY_VOLUME_TYPE_VOICE,		/* VOLUME_TYPE_VOICE */
-	VCONF_KEY_VOLUME_TYPE_ANDROID		/* VOLUME_TYPE_FIXED */
 };
 
 int _mm_sound_mgr_device_init(void)
@@ -95,7 +95,7 @@ int _mm_sound_mgr_device_init(void)
 	int ret = MM_ERROR_NONE;
 	debug_fenter();
 
-	for(i = 0 ; i < VOLUME_TYPE_MAX; i++) {
+	for (i = 0; i < VOLUME_TYPE_VCONF_MAX; i++) {
 		vconf_notify_key_changed(g_volume_vconf[i], (void (*) (keynode_t *, void *))_mm_sound_mgr_device_volume_callback, (void *)i);
 	}
 	g_connected_device_list_s.list = g_connected_device_list;
@@ -649,13 +649,17 @@ int _mm_sound_mgr_device_remove_info_changed_callback(const _mm_sound_mgr_device
 	return ret;
 }
 
-/* debug_warning ("cb_list = %p, cb_param = %p, pid=[%d]", x, cb_param, (cb_param)? cb_param->pid : -1); \ remove logs*/
 #define CLEAR_DEAD_CB_LIST(x)  do { \
-	debug_warning ("cb_list = %p, cb_param = %p, pid=[%d]", x, cb_param, (cb_param)? cb_param->pid : -1); \
-	if (x && cb_param && __mm_sound_mgr_device_check_process (cb_param->pid) != 0) { \
-		debug_warning("PID:%d does not exist now! remove from device cb list\n", cb_param->pid); \
-		g_free (cb_param); \
-		x = g_list_remove (x, cb_param); \
+	if (x && cb_param) { \
+		bool is_exist = mm_sound_util_is_process_alive(cb_param->pid); \
+		debug_msg ("cb_list = %p, cb_param = %p, pid=[%d] : exist[%d]", x, cb_param, cb_param->pid, is_exist); \
+		if (!is_exist) { \
+			debug_warning("PID:%d does not exist now! remove from device cb list\n", cb_param->pid); \
+			x = g_list_remove (x, cb_param); \
+			g_free (cb_param); \
+		} \
+	} else { \
+		debug_error ("Invalid list or param"); \
 	} \
 }while(0)
 
@@ -938,62 +942,55 @@ FINISH:
 	return ret;
 }
 
-int _mm_sound_mgr_device_update_volume()
+int _get_new_device_id(int *new_id)
 {
-	int i=0;
-	char* str = NULL;
+	int device_id = -1;
+	int cnt = 0;
 	int ret = MM_ERROR_NONE;
 
-	for (i=0; i<VOLUME_TYPE_MAX; i++) {
-		/* Update vconf */
-		str = vconf_get_str(g_volume_vconf[i]);
-		/* FIXME : Need to check history */
-		/*
-		if (vconf_set_str_no_fdatasync(g_volume_vconf[i], str) != 0) {
-			debug_error("vconf_set_str_no_fdatasync(%s) failed", g_volume_vconf[i]);
-			ret = MM_ERROR_SOUND_INTERNAL;
-			continue;
-		}
-		*/
-		if(str != NULL) {
-			free(str);
-			str = NULL;
+	if (!new_id) {
+		debug_error("device_h is null, could not set device id");
+		return MM_ERROR_SOUND_INTERNAL;
+	}
+
+	MMSOUND_ENTER_CRITICAL_SECTION_WITH_RETURN(&g_device_id_array_mutex, MM_ERROR_SOUND_INTERNAL);
+	for (cnt = 0; cnt < MAX_SUPPORT_DEVICE_NUM; cnt++) {
+		if (g_device_id_array[cnt] == 0) {
+			break;
 		}
 	}
+	if (cnt == MAX_SUPPORT_DEVICE_NUM) {
+		debug_error("could not get a new id, device array is full\n");
+		ret = MM_ERROR_SOUND_INTERNAL;
+	} else {
+		device_id = cnt;
+		g_device_id_array[cnt] = 1;
+	}
+
+	MMSOUND_LEAVE_CRITICAL_SECTION(&g_device_id_array_mutex);
+	*new_id = device_id;
 
 	return ret;
 }
 
 #define RELEASE_DEVICE_INFO_ID(x_id) \
 do { \
+	MMSOUND_ENTER_CRITICAL_SECTION_WITH_RETURN(&g_device_id_array_mutex, MM_ERROR_SOUND_INTERNAL); \
 	if (g_device_id_array[x_id] == 1) { \
 		g_device_id_array[x_id] = 0; \
 	} else { \
 		debug_error("could not release the id[%d]\n", x_id); \
 	} \
+	MMSOUND_LEAVE_CRITICAL_SECTION(&g_device_id_array_mutex); \
 } while(0)
 
-#define SET_DEVICE_INFO_ID_AUTO(x_device_h) \
+#define SET_DEVICE_INFO_ID(x_device_h, x_id) \
 do { \
-	int device_id = 0; \
-	int cnt = 0; \
 	if (!x_device_h) { \
-		debug_error("device_h is null, could not set device id"); \
+		debug_error("device_h is null, could not set device type"); \
 		break; \
 	} \
-	for (cnt = 0; cnt < MAX_SUPPORT_DEVICE_NUM; cnt++) { \
-		if (g_device_id_array[cnt] == 0) { \
-			break; \
-		} \
-	} \
-	if (cnt == MAX_SUPPORT_DEVICE_NUM) { \
-		debug_error("could not get a new id, device array is full\n"); \
-		device_id = -1; \
-	} else { \
-		device_id = cnt; \
-		g_device_id_array[cnt] = 1; \
-	} \
-	x_device_h->id = device_id; \
+	x_device_h->id = x_id; \
 } while(0)
 
 #define GET_DEVICE_INFO_ID(x_device_h, x_id) \
@@ -1115,9 +1112,9 @@ static int __mm_sound_mgr_device_check_flags_to_trigger (int device_flags, mm_so
 	}
 
 	if (need_to_check_for_io_direction) {
-		if ((device_h->io_direction == DEVICE_IO_DIRECTION_IN) && (device_flags & DEVICE_IO_DIRECTION_IN_FLAG)) {
+		if ((device_h->io_direction == DEVICE_IO_DIRECTION_IN || device_h->io_direction == DEVICE_IO_DIRECTION_BOTH) && (device_flags & DEVICE_IO_DIRECTION_IN_FLAG)) {
 			need_to_go = true;
-		} else if ((device_h->io_direction == DEVICE_IO_DIRECTION_OUT) && (device_flags & DEVICE_IO_DIRECTION_OUT_FLAG)) {
+		} else if ((device_h->io_direction == DEVICE_IO_DIRECTION_OUT || device_h->io_direction == DEVICE_IO_DIRECTION_BOTH) && (device_flags & DEVICE_IO_DIRECTION_OUT_FLAG)) {
 			need_to_go = true;
 		} else if ((device_h->io_direction == DEVICE_IO_DIRECTION_BOTH) && (device_flags & DEVICE_IO_DIRECTION_BOTH_FLAG)) {
 			need_to_go = true;
@@ -1387,22 +1384,28 @@ int MMSoundMgrDeviceGetIoDirectionById (int id, device_io_direction_e *io_direct
 /* if DEVICE's info. is changed => get device_h (by type and(or) id) => update status => call callback func */
 int MMSoundMgrDeviceUpdateStatus (device_update_status_e update_status, device_type_e device_type, device_io_direction_e io_direction, int id, const char* name, device_state_e state, int *alloc_id)
 {
-	debug_warning ("[UpdateDeviceStatus] update_for[%12s], type[%11s], direction[%4s], id[%d], name[%s], state[%11s], alloc_id[0x%x]\n",
+	int ret = MM_ERROR_NONE;
+	debug_log ("[UpdateDeviceStatus] update_for[%12s], type[%11s], direction[%4s], id[%d], name[%s], state[%11s], alloc_id[0x%x]\n",
 			device_update_str[update_status], device_type_str[device_type], device_io_direction_str[io_direction], id, name, device_state_str[state], alloc_id);
 	switch (update_status) {
 	case DEVICE_UPDATE_STATUS_CONNECTED:
 	{
-		int ret = MM_ERROR_NONE;
+		int new_id = -1;
 		/* find the device handle by device_type and(or) id */
 		mm_sound_device_t *device_h = NULL;
-		ret = _mm_sound_mgr_device_connected_dev_list_find_item (&device_h, device_type, id);
+		ret = _mm_sound_mgr_device_connected_dev_list_find_item(&device_h, device_type, id);
 		if(ret == MM_ERROR_SOUND_NO_DATA && !device_h) {
+			if ((ret = _get_new_device_id(&new_id)) != MM_ERROR_NONE) {
+				debug_error("failed to get new device id");
+				break;
+			}
 			/* add new entry for the type */
 			ret = _mm_sound_mgr_device_connected_dev_list_add_item (&device_h);
 			if (ret || !device_h) {
 				debug_error("could not add a new item for this type[%d], device_h[0x%x], ret[0x%x]\n", device_type, device_h, ret);
+				RELEASE_DEVICE_INFO_ID(new_id);
 			} else {
-				debug_error("update info for this device_h[0x%x]\n", device_h);
+				debug_log("update info for this device_h[0x%x]\n", device_h);
 				/* update device information */
 				/* 1. type */
 				SET_DEVICE_INFO_TYPE(device_h, device_type);
@@ -1413,7 +1416,7 @@ int MMSoundMgrDeviceUpdateStatus (device_update_status_e update_status, device_t
 				/* 4. state */
 				SET_DEVICE_INFO_STATE(device_h, DEVICE_STATE_DEACTIVATED);
 				/* 4. id */
-				SET_DEVICE_INFO_ID_AUTO(device_h);
+				SET_DEVICE_INFO_ID(device_h, new_id);
 				GET_DEVICE_INFO_ID(device_h, alloc_id);
 
 				_mm_sound_mgr_device_connected_dev_list_dump();
@@ -1437,7 +1440,6 @@ int MMSoundMgrDeviceUpdateStatus (device_update_status_e update_status, device_t
 
 	case DEVICE_UPDATE_STATUS_DISCONNECTED:
 	{
-		int ret = MM_ERROR_NONE;
 		/* find the device handle by device_type and(or) id */
 		mm_sound_device_t *device_h = NULL;
 		_mm_sound_mgr_device_connected_dev_list_dump();
@@ -1486,7 +1488,6 @@ int MMSoundMgrDeviceUpdateStatus (device_update_status_e update_status, device_t
 
 	case DEVICE_UPDATE_STATUS_CHANGED_INFO_STATE:
 	{
-		int ret = MM_ERROR_NONE;
 		/* find the device handle by device_type and(or) id */
 		mm_sound_device_t *device_h = NULL;
 		ret = _mm_sound_mgr_device_connected_dev_list_find_item (&device_h, device_type, id);
@@ -1514,7 +1515,6 @@ int MMSoundMgrDeviceUpdateStatus (device_update_status_e update_status, device_t
 
 	case DEVICE_UPDATE_STATUS_CHANGED_INFO_IO_DIRECTION:
 	{
-		int ret = MM_ERROR_NONE;
 		/* find the device handle by device_type and(or) id */
 		mm_sound_device_t *device_h = NULL;
 		ret = _mm_sound_mgr_device_connected_dev_list_find_item (&device_h, device_type, id);
@@ -1541,26 +1541,32 @@ int MMSoundMgrDeviceUpdateStatus (device_update_status_e update_status, device_t
 		break;
 	}
 
-	return MM_ERROR_NONE;
+	return ret;
 }
 
 int MMSoundMgrDeviceUpdateStatusWithoutNotification (device_update_status_e update_status, device_type_e device_type, device_io_direction_e io_direction, int id, const char* name, device_state_e state, int *alloc_id)
 {
+	int ret = MM_ERROR_NONE;
 	debug_warning ("[Update Device Status] update_status[%d], device type[%11s], io_direction[%4s], id[%d], name[%s], state[%11s], alloc_id[0x%x]\n",
 						update_status, device_type_str[device_type], device_io_direction_str[io_direction], id, name, device_state_str[state], alloc_id);
 	switch (update_status) {
 	case DEVICE_UPDATE_STATUS_CONNECTED:
 	{
-		int ret = MM_ERROR_NONE;
+		int new_id = -1;
 		/* find the device handle by device_type and(or) id */
 		mm_sound_device_t *device_h = NULL;
 		ret = _mm_sound_mgr_device_connected_dev_list_find_item (&device_h, device_type, id);
 		if(ret == MM_ERROR_SOUND_NO_DATA && !device_h) {
 			debug_log("we are going to add new item for this type[%d]/id[%d]\n", device_type, id);
+			if ((ret = _get_new_device_id(&new_id)) != MM_ERROR_NONE) {
+				debug_error("failed to get new device id");
+				break;
+			}
 			/* add new entry for the type */
 			ret = _mm_sound_mgr_device_connected_dev_list_add_item (&device_h);
 			if (ret || !device_h) {
 				debug_error("could not add a new item for this type[%d], device_h[0x%x], ret[0x%x]\n", device_type, device_h, ret);
+				RELEASE_DEVICE_INFO_ID(new_id);
 			} else {
 				debug_error("update info for this device_h[0x%x]\n", device_h);
 				/* update device information */
@@ -1573,7 +1579,7 @@ int MMSoundMgrDeviceUpdateStatusWithoutNotification (device_update_status_e upda
 				/* 4. state */
 				SET_DEVICE_INFO_STATE(device_h, DEVICE_STATE_DEACTIVATED);
 				/* 4. id */
-				SET_DEVICE_INFO_ID_AUTO(device_h);
+				SET_DEVICE_INFO_ID(device_h, new_id);
 				GET_DEVICE_INFO_ID(device_h, alloc_id);
 
 				_mm_sound_mgr_device_connected_dev_list_dump();
@@ -1592,7 +1598,6 @@ int MMSoundMgrDeviceUpdateStatusWithoutNotification (device_update_status_e upda
 
 	case DEVICE_UPDATE_STATUS_DISCONNECTED:
 	{
-		int ret = MM_ERROR_NONE;
 		/* find the device handle by device_type and(or) id */
 		mm_sound_device_t *device_h = NULL;
 		_mm_sound_mgr_device_connected_dev_list_dump();
@@ -1625,7 +1630,6 @@ int MMSoundMgrDeviceUpdateStatusWithoutNotification (device_update_status_e upda
 
 	case DEVICE_UPDATE_STATUS_CHANGED_INFO_STATE:
 	{
-		int ret = MM_ERROR_NONE;
 		/* find the device handle by device_type and(or) id */
 		mm_sound_device_t *device_h = NULL;
 		ret = _mm_sound_mgr_device_connected_dev_list_find_item (&device_h, device_type, id);
@@ -1649,7 +1653,6 @@ int MMSoundMgrDeviceUpdateStatusWithoutNotification (device_update_status_e upda
 
 	case DEVICE_UPDATE_STATUS_CHANGED_INFO_IO_DIRECTION:
 	{
-		int ret = MM_ERROR_NONE;
 		/* find the device handle by device_type and(or) id */
 		mm_sound_device_t *device_h = NULL;
 		ret = _mm_sound_mgr_device_connected_dev_list_find_item (&device_h, device_type, id);
@@ -1672,5 +1675,5 @@ int MMSoundMgrDeviceUpdateStatusWithoutNotification (device_update_status_e upda
 		break;
 	}
 
-	return MM_ERROR_NONE;
+	return ret;
 }

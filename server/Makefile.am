@@ -31,7 +31,7 @@ sound_server_CFLAGS = -I$(srcdir)/../include \
 			  		  $(HEYNOTI_CFLAGS)
 
 sound_server_LDADD = $(MMLOGSVR_LIBS) \
-		     -ldl \
+		     -ldl -lrt \
 		     $(MMCOMMON_LIBS) \
 		     $(MMSESSION_LIBS) \
 		     $(AUDIOSESSIONMGR_LIBS) \

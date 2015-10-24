@@ -33,6 +33,7 @@
 
 #include <mm_types.h>
 #include <mm_error.h>
+#include <unistd.h>
 
 #include "../include/mm_sound.h"
 
@@ -48,14 +49,6 @@ int _mm_sound_volume_add_callback(volume_type_t type, void *func, void* user_dat
 int _mm_sound_volume_remove_callback(volume_type_t type, void *func);
 int _mm_sound_volume_get_value_by_type(volume_type_t type, unsigned int *value);
 int _mm_sound_volume_set_value_by_type(volume_type_t type, unsigned int value);
-int _mm_sound_muteall_add_callback(void *func);
-int _mm_sound_muteall_remove_callback(void *func);
-int _mm_sound_volume_set_balance(float balance);
-int _mm_sound_volume_get_balance(float *balance);
-int _mm_sound_set_muteall(int muteall);
-int _mm_sound_get_muteall(int *muteall);
-int _mm_sound_set_stereo_to_mono(int ismono);
-int _mm_sound_get_stereo_to_mono(int *ismono);
 int _mm_sound_get_earjack_type (int *type);
 int _mm_sound_get_dock_type (int *type);
 mm_sound_device_in _mm_sound_get_device_in_from_path (int path);
@@ -64,6 +57,15 @@ mm_sound_device_out _mm_sound_get_device_out_from_path (int path);
 bool _mm_sound_is_recording (void);
 bool _mm_sound_is_mute_policy (void);
 
+bool mm_sound_util_is_process_alive(pid_t pid);
+#ifdef TIZEN_TV
+int _mm_sound_volume_get_master(unsigned int *value);
+int _mm_sound_volume_set_master(unsigned int value);
+int _mm_sound_mute_get_master(bool *value);
+int _mm_sound_mute_set_master(bool value);
+int _mm_sound_get_output_device(mm_sound_tv_output_device_t *value);
+int _mm_sound_set_output_device(mm_sound_tv_output_device_t value);
+#endif /* end of TIZEN_TV */
 #ifdef __cplusplus
 }
 #endif

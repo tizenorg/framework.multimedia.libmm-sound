@@ -242,7 +242,8 @@ int MMSoundPlugCodecWaveCreate(mmsound_codec_param_t *param, mmsound_codec_info_
 #ifdef DEBUG_DETAIL
 	debug_enter("\n");
 #endif
-	debug_msg("period[%d] type[%s] ch[%d] format[%d] rate[%d] doffset[%d] priority[%d] repeat[%d] volume[%d] callback[%p] keytone[%08x] route[%d]\n",
+
+	debug_msg("period[%d] type[%s] ch[%d] format[%d] rate[%d] doffset[%d] priority[%d] repeat[%d] volume[%f] callback[%p] keytone[%08x] route[%d]\n",
 			keytone_period, (info->codec == MM_SOUND_SUPPORTED_CODEC_WAVE) ? "Wave" : "Unknown",
 			info->channels, info->format, info->samplerate, info->doffset, param->priority, param->repeat_count,
 			param->volume, param->stop_cb, param->keytone, param->handle_route);
@@ -291,10 +292,7 @@ int MMSoundPlugCodecWaveCreate(mmsound_codec_param_t *param, mmsound_codec_info_
 	p->channels = info->channels;
 	p->samplerate = info->samplerate;
 
-	if(param->handle_route == MM_SOUND_HANDLE_ROUTE_USING_CURRENT) /* normal, solo */
-		p->handle_route = HANDLE_ROUTE_POLICY_OUT_AUTO;
-	else /* loud solo */
-		p->handle_route = HANDLE_ROUTE_POLICY_OUT_HANDSET;
+	p->handle_route = param->handle_route;
 
 	switch(info->format)
 	{
@@ -401,6 +399,8 @@ static void _runing(void *param)
 			/* MMSoundMgrPulseSetActiveDevice(route_info_device_in, route_info.device_out); */
 			break;
 		case MM_SOUND_HANDLE_ROUTE_USING_CURRENT:
+			route_info.policy = HANDLE_ROUTE_POLICY_OUT_AUTO;
+			break;
 		default:
 			break;
 	}

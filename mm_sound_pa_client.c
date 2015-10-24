@@ -142,7 +142,6 @@ static const pa_tizen_volume_type_t mm_sound_volume_type_to_pa[VOLUME_TYPE_MAX] 
 	[VOLUME_TYPE_VOIP] = PA_TIZEN_VOLUME_TYPE_VOIP,
 	[VOLUME_TYPE_VOICE] = PA_TIZEN_VOLUME_TYPE_VOICE,
 	[VOLUME_TYPE_FIXED] = PA_TIZEN_VOLUME_TYPE_FIXED,
-//	[VOLUME_TYPE_EXT_SYSTEM_JAVA] = PA_TIZEN_VOLUME_TYPE_EXT_JAVA,
 };
 
 #define PA_SIMPLE_FADE_INTERVAL_USEC						20000
@@ -490,10 +489,10 @@ int mm_sound_pa_open(MMSoundHandleMode mode, mm_sound_handle_route_info *route_i
         goto fail;
     }
 
-    if((handle = (mm_sound_handle_t*)malloc(sizeof(mm_sound_handle_t))) == NULL) {
-		debug_error("Allocate memory for handle failed\n");
-		err = MM_ERROR_OUT_OF_MEMORY;
-		goto fail;
+    if ((handle = (mm_sound_handle_t*)malloc(sizeof(mm_sound_handle_t))) == NULL) {
+        debug_error("Allocate memory for handle failed\n");
+        err = MM_ERROR_OUT_OF_MEMORY;
+        goto fail;
     }
 
     handle->mode = mode;
@@ -687,6 +686,25 @@ int mm_sound_pa_drain(const int handle)
 
     if (0 > pa_simple_drain(phandle->s, &err)) {
 		debug_error("pa_simple_drain() failed with %s\n", pa_strerror(err));
+		err = MM_ERROR_SOUND_INTERNAL;
+	}
+
+	return err;
+}
+
+EXPORT_API
+int mm_sound_pa_flush(const int handle)
+{
+    mm_sound_handle_t* phandle = NULL;
+    int err = MM_ERROR_NONE;
+
+	CHECK_HANDLE_RANGE(handle);
+    GET_HANDLE_DATA(phandle, mm_sound_handle_mgr.handles, &handle, __mm_sound_handle_comparefunc);
+    if(phandle == NULL)
+        return MM_ERROR_SOUND_INTERNAL;
+
+    if (0 > pa_simple_flush(phandle->s, &err)) {
+		debug_error("pa_simple_flush() failed with %s\n", pa_strerror(err));
 		err = MM_ERROR_SOUND_INTERNAL;
 	}
 
@@ -1046,3 +1064,84 @@ int mm_sound_pa_corkall(int cork)
     return MM_ERROR_NONE;
 }
 
+EXPORT_API
+int mm_sound_pa_set_route_info(const char* key, const char* value)
+{
+    pa_operation *o = NULL;
+
+    CHECK_CONNECT_TO_PULSEAUDIO();
+
+    pa_threaded_mainloop_lock(mm_sound_handle_mgr.mainloop);
+
+    o = pa_ext_policy_set_route_info(mm_sound_handle_mgr.context, key, value, __mm_sound_pa_success_cb, (void*)mm_sound_handle_mgr.mainloop);
+    WAIT_PULSEAUDIO_OPERATION(mm_sound_handle_mgr, o);
+
+    if(o)
+        pa_operation_unref(o);
+
+    pa_threaded_mainloop_unlock(mm_sound_handle_mgr.mainloop);
+
+    return MM_ERROR_NONE;
+}
+
+#ifdef TIZEN_TV
+EXPORT_API
+int mm_sound_pa_set_master_volume(const int value)
+{
+    pa_operation *o = NULL;
+
+    CHECK_CONNECT_TO_PULSEAUDIO();
+
+    pa_threaded_mainloop_lock(mm_sound_handle_mgr.mainloop);
+
+    o = pa_ext_policy_set_master_volume(mm_sound_handle_mgr.context, value, __mm_sound_pa_success_cb, (void*)mm_sound_handle_mgr.mainloop);
+    WAIT_PULSEAUDIO_OPERATION(mm_sound_handle_mgr, o);
+
+    if(o)
+        pa_operation_unref(o);
+
+    pa_threaded_mainloop_unlock(mm_sound_handle_mgr.mainloop);
+
+    return MM_ERROR_NONE;
+}
+
+EXPORT_API
+int mm_sound_pa_set_master_mute(const bool value)
+{
+    pa_operation *o = NULL;
+
+    CHECK_CONNECT_TO_PULSEAUDIO();
+
+    pa_threaded_mainloop_lock(mm_sound_handle_mgr.mainloop);
+
+    o = pa_ext_policy_set_master_mute(mm_sound_handle_mgr.context, value, __mm_sound_pa_success_cb, (void*)mm_sound_handle_mgr.mainloop);
+    WAIT_PULSEAUDIO_OPERATION(mm_sound_handle_mgr, o);
+
+    if(o)
+        pa_operation_unref(o);
+
+    pa_threaded_mainloop_unlock(mm_sound_handle_mgr.mainloop);
+
+    return MM_ERROR_NONE;
+}
+
+EXPORT_API
+int mm_sound_pa_set_output_device(const int device)
+{
+    pa_operation *o = NULL;
+
+    CHECK_CONNECT_TO_PULSEAUDIO();
+
+    pa_threaded_mainloop_lock(mm_sound_handle_mgr.mainloop);
+
+    o = pa_ext_policy_set_output_device(mm_sound_handle_mgr.context, device, __mm_sound_pa_success_cb, (void*)mm_sound_handle_mgr.mainloop);
+    WAIT_PULSEAUDIO_OPERATION(mm_sound_handle_mgr, o);
+
+    if(o)
+        pa_operation_unref(o);
+
+    pa_threaded_mainloop_unlock(mm_sound_handle_mgr.mainloop);
+
+    return MM_ERROR_NONE;
+}
+#endif /* end of TIZEN_TV */

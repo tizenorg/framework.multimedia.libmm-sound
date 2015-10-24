@@ -59,7 +59,28 @@ typedef struct {
 	volume_type_t		type;
 }volume_cb_param;
 
-volume_cb_param g_volume_param[VOLUME_TYPE_MAX];
+#ifdef TIZEN_TV
+typedef struct {
+	master_volume_callback_fn	func;
+	void*				data;
+}master_volume_cb_param;
+
+typedef struct {
+	master_mute_callback_fn	func;
+	void*				data;
+}master_mute_cb_param;
+
+typedef struct {
+	output_device_callback_fn	func;
+	void*				data;
+}output_device_cb_param;
+
+master_volume_cb_param g_master_volume_param;
+master_mute_cb_param g_master_mute_param;
+output_device_cb_param g_output_device_param;
+#endif /* end of TIZEN_TV */
+
+volume_cb_param g_volume_param[VOLUME_TYPE_VCONF_MAX];
 
 static pthread_mutex_t _volume_mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -93,7 +114,7 @@ static int __validate_volume(volume_type_t type, int value)
 			return -1;
 		}
 		break;
-	case VOLUME_TYPE_EXT_ANDROID:
+	case VOLUME_TYPE_FIXED:
 		if (value >= VOLUME_MAX_SINGLE) {
 			return -1;
 		}
@@ -127,7 +148,7 @@ int mm_sound_volume_add_callback(volume_type_t type, volume_callback_fn func, vo
 	debug_msg("type = (%d)%15s, func = %p, user_data = %p", type, __get_volume_str(type), func, user_data);
 
 	/* Check input param */
-	if (type < 0 || type >= VOLUME_TYPE_MAX) {
+	if (type < 0 || type >= VOLUME_TYPE_VCONF_MAX) {
 		debug_error("invalid argument\n");
 		return MM_ERROR_INVALID_ARGUMENT;
 	}
@@ -152,7 +173,7 @@ int mm_sound_volume_remove_callback(volume_type_t type)
 {
 	debug_msg("type = (%d)%s", type, __get_volume_str(type));
 
-	if(type < 0 || type >=VOLUME_TYPE_MAX) {
+	if(type < 0 || type >=VOLUME_TYPE_VCONF_MAX) {
 		debug_error("invalid argument\n");
 		return MM_ERROR_INVALID_ARGUMENT;
 	}
@@ -200,32 +221,6 @@ int mm_sound_remove_volume_changed_callback(void)
 }
 
 EXPORT_API
-int mm_sound_muteall_add_callback(muteall_callback_fn func)
-{
-	debug_msg("func = %p", func);
-
-	if (!func) {
-		debug_warning("callback function is null\n");
-		return MM_ERROR_INVALID_ARGUMENT;
-	}
-
-	return _mm_sound_muteall_add_callback(func);
-}
-
-EXPORT_API
-int mm_sound_muteall_remove_callback(muteall_callback_fn func)
-{
-	debug_msg("func = %p", func);
-
-	if (!func) {
-		debug_warning("callback function is null\n");
-		return MM_ERROR_INVALID_ARGUMENT;
-	}
-
-	return _mm_sound_muteall_remove_callback(func);
-}
-
-EXPORT_API
 int mm_sound_get_volume_step(volume_type_t type, int *step)
 {
 	debug_error("\n**********\n\nTHIS FUNCTION HAS DEFPRECATED\n\n \
@@ -243,7 +238,7 @@ int mm_sound_volume_get_step(volume_type_t type, int *step)
 		debug_error("second parameter is null\n");
 		return MM_ERROR_INVALID_ARGUMENT;
 	}
-	if (type < 0 || type >= VOLUME_TYPE_MAX) {
+	if (type < 0 || type >= VOLUME_TYPE_VCONF_MAX) {
 		debug_error("Invalid type value %d\n", (int)type);
 		return MM_ERROR_INVALID_ARGUMENT;
 	}
@@ -273,24 +268,10 @@ int mm_sound_volume_set_value(volume_type_t type, const unsigned int value)
 	ret = _mm_sound_volume_set_value_by_type(type, value);
 	if (ret == MM_ERROR_NONE) {
 		/* update shared memory value */
-		int muteall;
-		_mm_sound_get_muteall(&muteall);
-		if(!muteall) {
-			if(MM_ERROR_NONE != mm_sound_pa_set_volume_by_type(type, (int)value)) {
-				debug_error("Can not set volume to shared memory 0x%x\n", ret);
-			}
+		if(MM_ERROR_NONE != mm_sound_pa_set_volume_by_type(type, (int)value)) {
+			debug_error("Can not set volume to shared memory 0x%x\n", ret);
 		}
 	}
-
-	return ret;
-}
-
-EXPORT_API
-int mm_sound_mute_all(int muteall)
-{
-	int ret = MM_ERROR_NONE;
-
-	debug_msg("** deprecated API ** muteall = %d", muteall);
 
 	return ret;
 }
@@ -321,6 +302,22 @@ int mm_sound_get_call_mute(volume_type_t type, int *mute)
 }
 
 EXPORT_API
+int mm_sound_set_route_info(const char* key, const char* value)
+{
+	int ret = MM_ERROR_NONE;
+
+	if(key == NULL || value == NULL)
+		return MM_ERROR_INVALID_ARGUMENT;
+
+	ret = mm_sound_pa_set_route_info(key, value);
+	if(ret != MM_ERROR_NONE) {
+		debug_error("Can not set route info 0x%x\n", ret);
+	}
+
+	return ret;
+}
+
+EXPORT_API
 int mm_sound_volume_get_value(volume_type_t type, unsigned int *value)
 {
 	int ret = MM_ERROR_NONE;
@@ -330,7 +327,7 @@ int mm_sound_volume_get_value(volume_type_t type, unsigned int *value)
 		debug_error("invalid argument\n");
 		return MM_ERROR_INVALID_ARGUMENT;
 	}
-	if (type < 0 || type >= VOLUME_TYPE_MAX) {
+	if (type < 0 || type >= VOLUME_TYPE_VCONF_MAX) {
 		debug_error("invalid volume type value %d\n", type);
 		return MM_ERROR_INVALID_ARGUMENT;
 	}
@@ -348,7 +345,7 @@ int mm_sound_volume_primary_type_set(volume_type_t type)
 	int ret = MM_ERROR_NONE;
 
 	/* Check input param */
-	if(type < 0 || type >= VOLUME_TYPE_MAX) {
+	if(type < 0 || type >= VOLUME_TYPE_VCONF_MAX) {
 		debug_error("invalid argument\n");
 		return MM_ERROR_INVALID_ARGUMENT;
 	}
@@ -427,98 +424,10 @@ int mm_sound_volume_get_current_playing_type(volume_type_t *type)
 }
 
 EXPORT_API
-int mm_sound_volume_set_balance (float balance)
+int mm_sound_volume_primary_type_get(volume_type_t *type)
 {
-	debug_msg("balance = %f", balance);
-
-	/* Check input param */
-	if (balance < -1.0 || balance > 1.0) {
-		debug_error("invalid balance value [%f]\n", balance);
-		return MM_ERROR_INVALID_ARGUMENT;
-	}
-
-	return _mm_sound_volume_set_balance(balance);
+	return mm_sound_volume_get_current_playing_type(type);
 }
-
-EXPORT_API
-int mm_sound_volume_get_balance (float *balance)
-{
-	int ret = MM_ERROR_NONE;
-
-	/* Check input param */
-	if (balance == NULL) {
-		debug_error("invalid argument\n");
-		return MM_ERROR_INVALID_ARGUMENT;
-	}
-
-	ret = _mm_sound_volume_get_balance(balance);
-	debug_msg("returned balance = %f", *balance);
-
-	return ret;
-}
-
-EXPORT_API
-int mm_sound_set_muteall (int muteall)
-{
-	debug_msg("muteall = %d", muteall);
-
-	/* Check input param */
-	if (muteall < 0 || muteall > 1) {
-		debug_error("invalid muteall value [%f]\n", muteall);
-		return MM_ERROR_INVALID_ARGUMENT;
-	}
-
-	return _mm_sound_set_muteall(muteall);
-}
-
-EXPORT_API
-int mm_sound_get_muteall (int *muteall)
-{
-	int ret = MM_ERROR_NONE;
-
-	/* Check input param */
-	if (muteall == NULL) {
-		debug_error("invalid argument\n");
-		return MM_ERROR_INVALID_ARGUMENT;
-	}
-
-	ret = _mm_sound_get_muteall(muteall);
-	debug_msg("returned muteall = %d", *muteall);
-
-	return ret;
-}
-
-EXPORT_API
-int mm_sound_set_stereo_to_mono (int ismono)
-{
-	debug_msg("ismono = %d", ismono);
-
-	/* Check input param */
-	if (ismono < 0 || ismono > 1) {
-		debug_error("invalid ismono value [%f]\n", ismono);
-		return MM_ERROR_INVALID_ARGUMENT;
-	}
-
-	return __mm_sound_set_stereo_to_mono(ismono);
-}
-
-EXPORT_API
-int mm_sound_get_stereo_to_mono (int *ismono)
-{
-	int ret = MM_ERROR_NONE;
-
-	/* Check input param */
-	if (ismono == NULL) {
-		debug_error("invalid argument\n");
-		return MM_ERROR_INVALID_ARGUMENT;
-	}
-
-	ret = __mm_sound_get_stereo_to_mono(ismono);
-	debug_msg("returned ismono = %d", *ismono);
-
-	return ret;
-}
-
 
 ///////////////////////////////////
 ////     MMSOUND PLAY APIs
@@ -789,28 +698,6 @@ int mm_sound_route_remove_change_callback(void)
 #endif /* PULSE_CLIENT */
 
 EXPORT_API
-int mm_sound_system_get_capture_status(system_audio_capture_status_t *status)
-{
-	int err = MM_ERROR_NONE;
-	int on_capture = 0;
-
-	if(!status) {
-		debug_error("invalid argument\n");
-		return MM_ERROR_INVALID_ARGUMENT;
-	}
-
-	/*  Check whether sound is capturing */
-	vconf_get_int(VCONFKEY_SOUND_CAPTURE_STATUS, &on_capture); // need to check where it is set
-
-	if(on_capture)
-		*status = SYSTEM_AUDIO_CAPTURE_ACTIVE;
-	else
-		*status = SYSTEM_AUDIO_CAPTURE_NONE;
-
-	return MM_ERROR_NONE;
-}
-
-EXPORT_API
 int mm_sound_is_route_available(mm_sound_route route, bool *is_available)
 {
 	int ret = MM_ERROR_NONE;
@@ -1027,7 +914,343 @@ int mm_sound_set_sound_path_for_active_device(mm_sound_device_out device_out, mm
 
 	return ret;
 }
+#ifdef TIZEN_TV
+static void master_volume_changed_cb(keynode_t* node, void* data)
+{
+	master_volume_cb_param* param = (master_volume_cb_param*) data;
+	int new_value = 0;
+	char* node_name = NULL;
 
+
+	node_name = vconf_keynode_get_name(node);
+	new_value = vconf_keynode_get_int(node);
+
+	debug_msg("%s changed callback called, new value(%d)\n", node_name, new_value);
+
+	MMSOUND_ENTER_CRITICAL_SECTION( &_volume_mutex )
+
+	if(param && (param->func != NULL)) {
+		debug_log("function 0x%x\n", param->func);
+		((master_volume_callback_fn)param->func)(new_value, param->data);
+	}
+
+	MMSOUND_LEAVE_CRITICAL_SECTION( &_volume_mutex )
+}
+
+static void master_mute_changed_cb(keynode_t* node, void* data)
+{
+	master_mute_cb_param* param = (master_mute_cb_param*) data;
+	int new_value = 0;
+	char* node_name = NULL;
+
+
+	node_name = vconf_keynode_get_name(node);
+	new_value = vconf_keynode_get_int(node);
+
+	debug_msg("%s changed callback called, new value(%d)\n", node_name, new_value);
+
+	MMSOUND_ENTER_CRITICAL_SECTION( &_volume_mutex )
+
+	if(param && (param->func != NULL)) {
+		debug_log("function 0x%x\n", param->func);
+		((master_mute_callback_fn)param->func)(new_value, param->data);
+	}
+
+	MMSOUND_LEAVE_CRITICAL_SECTION( &_volume_mutex )
+}
+
+static void output_device_changed_cb(keynode_t* node, void* data)
+{
+	output_device_cb_param* param = (output_device_cb_param*) data;
+	int new_value = 0;
+	char* node_name = NULL;
+
+
+	node_name = vconf_keynode_get_name(node);
+	new_value = vconf_keynode_get_int(node);
+
+	debug_msg("%s changed callback called, new value(%d)\n", node_name, new_value);
+
+	MMSOUND_ENTER_CRITICAL_SECTION( &_volume_mutex )
+
+	if(param && (param->func != NULL)) {
+		debug_log("function 0x%x\n", param->func);
+		((output_device_callback_fn)param->func)((mm_sound_tv_output_device_t)new_value, param->data);
+	}
+
+	MMSOUND_LEAVE_CRITICAL_SECTION( &_volume_mutex )
+}
+
+EXPORT_API
+int mm_sound_volume_get_master(unsigned int *value)
+{
+	int ret = MM_ERROR_NONE;
+
+	/* Check input param */
+	if (value == NULL) {
+		debug_error("invalid argument\n");
+		return MM_ERROR_INVALID_ARGUMENT;
+	}
+
+	ret = _mm_sound_volume_get_master(value);
+
+	debug_msg("returned %d", *value);
+	return ret;
+
+	return ret;
+}
+
+EXPORT_API
+int mm_sound_volume_set_master(const unsigned int value)
+{
+	int ret = MM_ERROR_NONE;
+
+	debug_msg("value = %d", value);
+
+	/* Check input param */
+	if ((value < MASTER_VOLUME_MIN) || (value > MASTER_VOLUME_MAX)) {
+		debug_error("invalid volume value %u\n", value);
+		return MM_ERROR_INVALID_ARGUMENT;
+	}
+
+	ret = _mm_sound_volume_set_master(value);
+	if (ret == MM_ERROR_NONE) {
+		if(MM_ERROR_NONE != mm_sound_pa_set_master_volume((int)value)) {
+			debug_error("mm_sound_pa_set_master_volume failed : 0x%x\n", ret);
+		}
+	}
+
+	return ret;
+}
+
+EXPORT_API
+int mm_sound_set_master_volume_changed_callback(master_volume_callback_fn func, void* user_data)
+{
+	debug_msg("func = %p, user_data = %p", func, user_data);
+
+	/* Check input param */
+	if (!func) {
+		debug_warning("callback function is null\n");
+		return MM_ERROR_INVALID_ARGUMENT;
+	}
+
+	MMSOUND_ENTER_CRITICAL_SECTION_WITH_RETURN( &_volume_mutex, MM_ERROR_SOUND_INTERNAL );
+
+	if (g_master_volume_param.func) {
+		debug_error ("already set callback(%p), user_data(%p). please try it again after unsetting the prior callback\n", g_master_volume_param.func, g_master_volume_param.data);
+		MMSOUND_LEAVE_CRITICAL_SECTION( &_volume_mutex );
+		return MM_ERROR_SOUND_INTERNAL;
+	} else {
+		g_master_volume_param.func = func;
+		g_master_volume_param.data = user_data;
+	}
+
+	MMSOUND_LEAVE_CRITICAL_SECTION( &_volume_mutex );
+
+	if (vconf_notify_key_changed(VCONF_KEY_VOLUME_MASTER, master_volume_changed_cb,(void*)&g_master_volume_param)) {
+		debug_error ("vconf_notify_key_changed failed..\n");
+		return MM_ERROR_SOUND_INTERNAL;
+	}
+	return MM_ERROR_NONE;
+}
+
+EXPORT_API
+int mm_sound_unset_master_volume_changed_callback(void)
+{
+	debug_msg("func = %p, user_data = %p will be removed", g_master_volume_param.func, g_master_volume_param.data);
+
+	MMSOUND_ENTER_CRITICAL_SECTION_WITH_RETURN( &_volume_mutex, MM_ERROR_SOUND_INTERNAL );
+
+	g_master_volume_param.func = NULL;
+	g_master_volume_param.data = NULL;
+
+	MMSOUND_LEAVE_CRITICAL_SECTION( &_volume_mutex );
+
+	if (vconf_ignore_key_changed(VCONF_KEY_VOLUME_MASTER, master_volume_changed_cb)) {
+		debug_error ("vconf_ignore_key_changed failed..\n");
+		return MM_ERROR_SOUND_INTERNAL;
+	}
+	return MM_ERROR_NONE;
+}
+
+EXPORT_API
+int mm_sound_mute_get_master(bool *value)
+{
+	int ret = MM_ERROR_NONE;
+
+	/* Check input param */
+	if (value == NULL) {
+		debug_error("invalid argument\n");
+		return MM_ERROR_INVALID_ARGUMENT;
+	}
+
+	ret = _mm_sound_mute_get_master(value);
+
+	debug_msg("returned %d", *value);
+	return ret;
+
+	return ret;
+}
+
+EXPORT_API
+int mm_sound_mute_set_master(const bool value)
+{
+	int ret = MM_ERROR_NONE;
+
+	debug_msg("value = %d", value);
+
+	ret = _mm_sound_mute_set_master(value);
+	if (ret == MM_ERROR_NONE) {
+		if(MM_ERROR_NONE != mm_sound_pa_set_master_mute((int)value)) {
+			debug_error("mm_sound_pa_set_master_mute failed : 0x%x\n", ret);
+		}
+	}
+
+	return ret;
+}
+
+EXPORT_API
+int mm_sound_set_master_mute_changed_callback(master_mute_callback_fn func, void* user_data)
+{
+	debug_msg("func = %p, user_data = %p", func, user_data);
+
+	/* Check input param */
+	if (!func) {
+		debug_warning("callback function is null\n");
+		return MM_ERROR_INVALID_ARGUMENT;
+	}
+
+	MMSOUND_ENTER_CRITICAL_SECTION_WITH_RETURN( &_volume_mutex, MM_ERROR_SOUND_INTERNAL );
+
+	if (g_master_mute_param.func) {
+		debug_error ("already set callback(%p), user_data(%p). please try it again after unsetting the prior callback\n", g_master_mute_param.func, g_master_mute_param.data);
+		MMSOUND_LEAVE_CRITICAL_SECTION( &_volume_mutex );
+		return MM_ERROR_SOUND_INTERNAL;
+	} else {
+		g_master_mute_param.func = func;
+		g_master_mute_param.data = user_data;
+	}
+
+	MMSOUND_LEAVE_CRITICAL_SECTION( &_volume_mutex );
+
+	if (vconf_notify_key_changed(VCONF_KEY_MUTE_MASTER, master_mute_changed_cb,(void*)&g_master_mute_param)) {
+		debug_error ("vconf_notify_key_changed failed..\n");
+		return MM_ERROR_SOUND_INTERNAL;
+	}
+	return MM_ERROR_NONE;
+}
+
+EXPORT_API
+int mm_sound_unset_master_mute_changed_callback(void)
+{
+	debug_msg("func = %p, user_data = %p will be removed", g_master_mute_param.func, g_master_mute_param.data);
+
+	MMSOUND_ENTER_CRITICAL_SECTION_WITH_RETURN( &_volume_mutex, MM_ERROR_SOUND_INTERNAL );
+
+	g_master_mute_param.func = NULL;
+	g_master_mute_param.data = NULL;
+
+	MMSOUND_LEAVE_CRITICAL_SECTION( &_volume_mutex );
+
+	if (vconf_ignore_key_changed(VCONF_KEY_MUTE_MASTER, master_mute_changed_cb)) {
+		debug_error ("vconf_ignore_key_changed failed..\n");
+		return MM_ERROR_SOUND_INTERNAL;
+	}
+	return MM_ERROR_NONE;
+}
+
+EXPORT_API
+int mm_sound_get_output_device(mm_sound_tv_output_device_t *device)
+{
+	int ret = MM_ERROR_NONE;
+
+	/* Check input param */
+	if (device == NULL) {
+		debug_error("invalid argument\n");
+		return MM_ERROR_INVALID_ARGUMENT;
+	}
+
+	ret = _mm_sound_get_output_device(device);
+
+	debug_msg("returned %d", *device);
+	return ret;
+
+	return ret;
+}
+
+EXPORT_API
+int mm_sound_set_output_device(mm_sound_tv_output_device_t device)
+{
+	int ret = MM_ERROR_NONE;
+
+	debug_msg("device = %d", device);
+
+	/* Check input param */
+	if ((device < MM_SOUND_TV_OUTPUT_SPEAKER) || (device > MM_SOUND_TV_OUTPUT_MAX)) {
+		debug_error("invalid volume value %u\n", device);
+		return MM_ERROR_INVALID_ARGUMENT;
+	}
+
+	ret = _mm_sound_set_output_device(device);
+	if (ret == MM_ERROR_NONE) {
+		if(MM_ERROR_NONE != mm_sound_pa_set_output_device((int)device)) {
+			debug_error("mm_sound_pa_set_output_device failed : 0x%x\n", ret);
+		}
+	}
+
+	return ret;
+}
+
+EXPORT_API
+int mm_sound_set_output_device_changed_callback(output_device_callback_fn func, void* user_data)
+{
+	debug_msg("func = %p, user_data = %p", func, user_data);
+
+	/* Check input param */
+	if (!func) {
+		debug_warning("callback function is null\n");
+		return MM_ERROR_INVALID_ARGUMENT;
+	}
+
+	MMSOUND_ENTER_CRITICAL_SECTION_WITH_RETURN( &_volume_mutex, MM_ERROR_SOUND_INTERNAL );
+
+	if (g_output_device_param.func) {
+		debug_error ("already set callback(%p), user_data(%p). please try it again after unsetting the prior callback\n", g_output_device_param.func, g_output_device_param.data);
+		MMSOUND_LEAVE_CRITICAL_SECTION( &_volume_mutex );
+		return MM_ERROR_SOUND_INTERNAL;
+	} else {
+		g_output_device_param.func = func;
+		g_output_device_param.data = user_data;
+	}
+
+	MMSOUND_LEAVE_CRITICAL_SECTION( &_volume_mutex );
+
+	if (vconf_notify_key_changed(VCONF_KEY_OUTPUT_DEVICE, output_device_changed_cb,(void*)&g_output_device_param)) {
+		debug_error ("vconf_notify_key_changed failed..\n");
+		return MM_ERROR_SOUND_INTERNAL;
+	}
+	return MM_ERROR_NONE;
+}
+
+EXPORT_API
+int mm_sound_unset_output_device_changed_callback(void)
+{
+	debug_msg("func = %p, user_data = %p will be removed", g_output_device_param.func, g_output_device_param.data);
+
+	MMSOUND_ENTER_CRITICAL_SECTION_WITH_RETURN( &_volume_mutex, MM_ERROR_SOUND_INTERNAL );
+
+	g_output_device_param.func = NULL;
+	g_output_device_param.data = NULL;
+
+	MMSOUND_LEAVE_CRITICAL_SECTION( &_volume_mutex );
+
+	if (vconf_ignore_key_changed(VCONF_KEY_OUTPUT_DEVICE, output_device_changed_cb)) {
+		debug_error ("vconf_ignore_key_changed failed..\n");
+		return MM_ERROR_SOUND_INTERNAL;
+	}
+	return MM_ERROR_NONE;
+}
+#endif /* end of TIZEN_TV */
 __attribute__ ((destructor))
 void __mmfsnd_finalize(void)
 {

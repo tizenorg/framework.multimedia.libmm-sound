@@ -53,8 +53,6 @@
 
 #define MAX_STRING_LEN	256
 
-#define VCONF_SOUND_BURSTSHOT "memory/private/sound/burstshot"
-
 #define DEVICE_API_BLUETOOTH	"bluez"
 #define DEVICE_API_ALSA	"alsa"
 #define DEVICE_BUS_BLUETOOTH "bluetooth"
@@ -146,6 +144,7 @@ static int __set_sound_path_to_speaker ();
 static int __set_sound_path_for_voicecontrol (void);
 static void __select_playback_active_device (void);
 static void __select_capture_active_device (void);
+static void __set_deactivate_all_device_auto (mm_sound_device_in exception_in, mm_sound_device_out exception_out);
 
 static const char* __get_session_string(session_t session);
 static const char* __get_subsession_string(subsession_t session);
@@ -195,10 +194,6 @@ typedef struct _session_info_struct
 	session_t session;
 	subsession_t subsession;
 	mm_subsession_option_t option;
-
-	device_type_t previous_playback_device;
-	device_type_t previous_capture_device;
-	int previous_device_available;
 
 	BT_INFO_STRUCT bt_info;
 	char default_sink_name[MAX_STRING_LEN];
@@ -338,31 +333,6 @@ static bool _asm_unregister_for_headset (int *handle)
 }
 
 /* ------------------------- INTERNAL FUNCTIONS ------------------------------------*/
-
-static void __backup_current_active_device()
-{
-	g_info.previous_playback_device = GET_ACTIVE_PLAYBACK();
-	g_info.previous_capture_device = GET_ACTIVE_CAPTURE();
-	g_info.previous_device_available = g_info.device_available;
-}
-
-static void __restore_previous_active_device()
-{
-	RESET_ACTIVE(0);
-
-	debug_msg ("available device (0x%x => 0x%x)", g_info.previous_device_available, g_info.device_available);
-	if (g_info.previous_device_available == g_info.device_available) {
-		/* No Changes */
-		g_info.device_active |= g_info.previous_playback_device;
-		g_info.device_active |= g_info.previous_capture_device;
-	} else {
-		/* Changes happens */
-		__select_playback_active_device();
-		__select_capture_active_device();
-	}
-}
-
-
 static int __set_route(bool need_broadcast, bool need_cork)
 {
 	int ret = MM_ERROR_NONE;
@@ -426,9 +396,6 @@ static int __set_playback_route_voip (session_state_t state)
 		/* Enable Receiver Device */
 		debug_log ("voip call session started...");
 
-		/* Backup current active for future restore */
-		__backup_current_active_device();
-
 		/* Set default subsession as VOICE */
 #ifdef TIZEN_MICRO
 		g_info.subsession = SUBSESSION_MEDIA;
@@ -458,8 +425,13 @@ static int __set_playback_route_voip (session_state_t state)
 			debug_warning ("Must be VOIP session but current session is [%s]\n",
 				__get_session_string(g_info.session));
 		}
-		debug_log ("Reset ACTIVE, activate previous active device if still available, if not, set based on priority");
-		__restore_previous_active_device();
+		debug_log ("Reset ACTIVE, set based on priority");
+		RESET_ACTIVE(0);
+		/* Changes happens */
+		__select_playback_active_device();
+		__select_capture_active_device();
+		/* DEACTIVATE OTHERS */
+		__set_deactivate_all_device_auto (GET_ACTIVE_CAPTURE(), GET_ACTIVE_PLAYBACK());
 
 		debug_log ("voip call session stopped...set path based on current active device");
 		__set_route(true, false);
@@ -478,9 +450,6 @@ static int __set_playback_route_call (session_state_t state)
 
 	if (state == SESSION_START) {
 		debug_log ("voicecall session started...");
-
-		/* Backup current active for future restore */
-		__backup_current_active_device();
 
 		/* Set default subsession as MEDIA */
 		g_info.subsession = SUBSESSION_MEDIA;
@@ -503,8 +472,13 @@ static int __set_playback_route_call (session_state_t state)
 		dump_info();
 	} else {
 		/* SESSION_END */
-		debug_log ("Reset ACTIVE, activate previous active device if still available, if not, set based on priority");
-		__restore_previous_active_device();
+		debug_log ("Reset ACTIVE, set based on priority");
+		RESET_ACTIVE(0);
+		/* Changes happens */
+		__select_playback_active_device();
+		__select_capture_active_device();
+		/* DEACTIVATE OTHERS */
+		__set_deactivate_all_device_auto (GET_ACTIVE_CAPTURE(), GET_ACTIVE_PLAYBACK());
 
 		debug_log ("voicecall session stopped...set path based on current active device");
 		__set_route(true, false);
@@ -699,25 +673,6 @@ static bool __is_recording_subsession ()
 	return is_recording;
 }
 
-static void _wait_if_burstshot_exists(void)
-{
-	int retry = 0;
-	int is_burstshot = 0;
-
-	do {
-		if (retry > 0)
-			usleep (BURST_CHECK_INTERVAL);
-		if (vconf_get_int(VCONF_SOUND_BURSTSHOT, &is_burstshot) != 0) {
-			debug_warning ("Faided to get [%s], assume no burstshot....", VCONF_SOUND_BURSTSHOT);
-			is_burstshot = 0;
-		} else {
-			debug_warning ("Is Burstshot [%d], retry...[%d/%d], interval usec = %d",
-						is_burstshot, retry, MAX_BURST_CHECK_RETRY, BURST_CHECK_INTERVAL);
-		}
-	} while (is_burstshot && retry++ < MAX_BURST_CHECK_RETRY);
-}
-
-
 static int __set_sound_path_for_current_active (bool need_broadcast, bool need_cork)
 {
 	int ret = MM_ERROR_NONE;
@@ -732,9 +687,6 @@ static int __set_sound_path_for_current_active (bool need_broadcast, bool need_c
 		debug_warning ("Current session is ALARM/NOTI/EMER, pending path setting. path set will be done after session ends");
 		return MM_ERROR_SOUND_INVALID_STATE;
 	}
-
-	/* Wait if BurstShot is ongoing */
-	_wait_if_burstshot_exists();
 
 	if (need_cork)
 		MMSoundMgrPulseSetCorkAll (true);
@@ -810,40 +762,12 @@ static int __set_sound_path_for_current_active (bool need_broadcast, bool need_c
 	case SESSION_VOICECALL:
 	case SESSION_VIDEOCALL:
 		if (g_info.subsession == SUBSESSION_RINGTONE) {
-#ifndef _TIZEN_PUBLIC_
-#ifndef TIZEN_MICRO
-			int vr_enabled = 0;
-#endif
-			int vr_ringtone_enabled = 0;
-#endif
 			in = MM_SOUND_DEVICE_IN_NONE;
 			/* If active device was WFD(mirroring), set option */
 			if (out == MM_SOUND_DEVICE_OUT_MIRRORING) {
 				/* mirroring option */
 			}
 
-#ifndef _TIZEN_PUBLIC_
-#ifdef TIZEN_MICRO
-			if (vconf_get_bool(VCONF_KEY_VR_RINGTONE_ENABLED, &vr_ringtone_enabled)) {
-				debug_warning("vconf_get_bool for %s failed\n", VCONF_KEY_VR_RINGTONE_ENABLED);
-			}
-
-			if (vr_ringtone_enabled) {
-				/* bargin option */
-			}
-#else
-			/* If voice control for incoming call is enabled, set capture path here for avoiding ringtone breaks */
-			if (vconf_get_bool(VCONF_KEY_VR_ENABLED, &vr_enabled)) {
-				debug_warning("vconf_get_bool for %s failed\n", VCONF_KEY_VR_ENABLED);
-			} else if (vconf_get_bool(VCONF_KEY_VR_RINGTONE_ENABLED, &vr_ringtone_enabled)) {
-				debug_warning("vconf_get_bool for %s failed\n", VCONF_KEY_VR_RINGTONE_ENABLED);
-			}
-
-			if (vr_enabled && vr_ringtone_enabled) {
-				/* bargin option */
-			}
-#endif /* TIZEN_MICRO */
-#endif /* #ifndef _TIZEN_PUBLIC_ */
 			if (_mm_sound_is_mute_policy ()) {
 				/* Mute Ringtone */
 #ifdef TIZEN_MICRO
@@ -950,7 +874,6 @@ static int __set_sound_path_for_current_active (bool need_broadcast, bool need_c
 		}		
 		MMSoundMgrPulseSetCorkAll (false);
 	}
-	MMSoundMgrPulseUpdateVolume();
 
 	/* clean up */
 	debug_fleave();
@@ -1096,6 +1019,18 @@ int  MMSoundMgrSessionSetSoundPathForActiveDevice (mm_sound_device_out playback,
 		SET_CAPTURE_ONLY_ACTIVE(capture);
 	}
 	MMSoundMgrPulseSetActiveDevice(GET_ACTIVE_CAPTURE(), GET_ACTIVE_PLAYBACK());
+
+	if (IS_ACTIVE(MM_SOUND_DEVICE_OUT_BT_A2DP)) {
+		MMSoundMgrPulseSetDefaultSink (DEVICE_API_BLUETOOTH, DEVICE_BUS_BLUETOOTH);
+	} else if (IS_ACTIVE(MM_SOUND_DEVICE_OUT_USB_AUDIO)) {
+		MMSoundMgrPulseSetUSBDefaultSink (MM_SOUND_DEVICE_OUT_USB_AUDIO);
+	} else if (IS_ACTIVE(MM_SOUND_DEVICE_OUT_MULTIMEDIA_DOCK)) {
+		MMSoundMgrPulseSetUSBDefaultSink (MM_SOUND_DEVICE_OUT_MULTIMEDIA_DOCK);
+	} else if (IS_ACTIVE(MM_SOUND_DEVICE_OUT_HDMI)) {
+		MMSoundMgrPulseSetDefaultSinkByName (ALSA_SINK_HDMI);
+	} else {
+		MMSoundMgrPulseSetDefaultSink (DEVICE_API_ALSA, DEVICE_BUS_BUILTIN);
+	}
 	UNLOCK_PATH();
 
 END_SET_DEVICE:
@@ -1127,6 +1062,18 @@ static int __set_sound_path_for_active_device_nolock (mm_sound_device_out playba
 	}
 	MMSoundMgrPulseSetActiveDevice(GET_ACTIVE_CAPTURE(), GET_ACTIVE_PLAYBACK());
 
+	if (IS_ACTIVE(MM_SOUND_DEVICE_OUT_BT_A2DP)) {
+		MMSoundMgrPulseSetDefaultSink (DEVICE_API_BLUETOOTH, DEVICE_BUS_BLUETOOTH);
+	} else if (IS_ACTIVE(MM_SOUND_DEVICE_OUT_USB_AUDIO)) {
+		MMSoundMgrPulseSetUSBDefaultSink (MM_SOUND_DEVICE_OUT_USB_AUDIO);
+	} else if (IS_ACTIVE(MM_SOUND_DEVICE_OUT_MULTIMEDIA_DOCK)) {
+		MMSoundMgrPulseSetUSBDefaultSink (MM_SOUND_DEVICE_OUT_MULTIMEDIA_DOCK);
+	} else if (IS_ACTIVE(MM_SOUND_DEVICE_OUT_HDMI)) {
+		MMSoundMgrPulseSetDefaultSinkByName (ALSA_SINK_HDMI);
+	} else {
+		MMSoundMgrPulseSetDefaultSink (DEVICE_API_ALSA, DEVICE_BUS_BUILTIN);
+	}
+
 END_SET_DEVICE:
 	debug_fleave();
 	return ret;
@@ -1150,7 +1097,7 @@ static int __set_sound_path_to_speaker (void)
 static void __select_playback_active_device (void)
 {
 	if (IS_ACTIVE(MM_SOUND_DEVICE_OUT_ANY)) {
-		debug_log ("Active device exists. Nothing needed...\n");
+		debug_msg ("Active device exists. Nothing needed...\n");
 		return;
 	}
 
@@ -1194,7 +1141,7 @@ static void __select_playback_active_device (void)
 static void __select_capture_active_device (void)
 {
 	if (IS_ACTIVE(MM_SOUND_DEVICE_IN_ANY)) {
-		debug_log ("Active device exists. Nothing needed...\n");
+		debug_msg ("Active device exists. Nothing needed...\n");
 		return;
 	}
 
@@ -2584,18 +2531,14 @@ int MMSoundMgrSessionSetSubSession(subsession_t subsession, int subsession_opt)
 				need_update = true;
 			}
 			break;
-	}	if (g_info.subsession == SUBSESSION_VOICE) {
-		if (IS_ACTIVE(MM_SOUND_DEVICE_OUT_BT_SCO) && IS_ACTIVE(MM_SOUND_DEVICE_IN_BT_SCO)) {
-			/* Update BT info */
-			MMSoundMgrPulseUpdateBluetoothAGCodec();
-		}
 	}
-
 	if (g_info.subsession == SUBSESSION_VOICE) {
+#ifdef SUPPORT_BT_SCO
 		if (IS_ACTIVE(MM_SOUND_DEVICE_OUT_BT_SCO) && IS_ACTIVE(MM_SOUND_DEVICE_IN_BT_SCO)) {
 			/* Update BT info */
 			MMSoundMgrPulseUpdateBluetoothAGCodec();
 		}
+#endif
 	}
 	
 	if (need_update) {
@@ -2668,11 +2611,7 @@ bool MMSoundMgrSessionGetVoiceControlState ()
 /* -------------------------------- NOISE REDUCTION --------------------------------------------*/
 static bool __is_noise_reduction_on (void)
 {
-	int noise_reduction_on = 1;
-
-	if (vconf_get_bool(VCONF_KEY_NOISE_REDUCTION, &noise_reduction_on)) {
-		debug_warning("vconf_get_bool for VCONF_KEY_NOISE_REDUCTION failed\n");
-	}
+	int noise_reduction_on = 0;
 
 	return (noise_reduction_on == 1) ? true : false;
 }
@@ -2680,11 +2619,7 @@ static bool __is_noise_reduction_on (void)
 /* -------------------------------- EXTRA VOLUME --------------------------------------------*/
 static bool __is_extra_volume_on (void)
 {
-	int extra_volume_on = 1;
-
-	if (vconf_get_bool(VCONF_KEY_EXTRA_VOLUME, &extra_volume_on )) {
-		debug_warning("vconf_get_bool for VCONF_KEY_EXTRA_VOLUME failed\n");
-	}
+	int extra_volume_on = 0;
 
 	return (extra_volume_on  == 1) ? true : false;
 }
@@ -2693,11 +2628,7 @@ static bool __is_extra_volume_on (void)
 /* -------------------------------- UPSCALING --------------------------------------------*/
 static bool __is_upscaling_needed (void)
 {
-	int is_wbamr = 1;
-
-	if (vconf_get_bool(VCONF_KEY_WBAMR, &is_wbamr)) {
-		debug_warning("vconf_get_bool for VCONF_KEY_WBAMR failed\n");
-	}
+	int is_wbamr = 0;
 
 	return (is_wbamr == 0) ? true : false;
 }

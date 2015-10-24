@@ -1,6 +1,6 @@
 Name:       libmm-sound
 Summary:    MMSound Package contains client lib and sound_server binary
-Version:    0.9.189
+Version:    0.9.255
 Release:    0
 Group:      System/Libraries
 License:    Apache-2.0
@@ -19,14 +19,15 @@ BuildRequires: pkgconfig(gio-2.0)
 BuildRequires: pkgconfig(vconf)
 BuildRequires: pkgconfig(libpulse)
 BuildRequires: pkgconfig(iniparser)
+%if "%{?tizen_profile_name}" != "tv"
 BuildRequires: pkgconfig(capi-network-bluetooth)
+%endif
 %ifarch %{arm}
 %endif
 %if "%{?tizen_profile_name}" == "wearable"
 BuildRequires: pkgconfig(bluetooth-api)
 %endif
 BuildRequires: pkgconfig(libtremolo)
-BuildRequires: model-build-features
 
 %description
 MMSound Package contains client lib and sound_server binary for sound system
@@ -61,11 +62,16 @@ MMSound utility package - contians mm_sound_testsuite, sound_check for sound sys
 
 %build
 %define tizen_audio_feature_ogg_enable 1
+
+%if "%{?tizen_profile_name}" == "tv"
+%define tizen_audio_feature_bluetooth_enable 0
+%else
 %define tizen_audio_feature_bluetooth_enable 1
+%endif
 
 %if "%{?tizen_profile_name}" == "wearable"
 %define tizen_audio_feature_hfp 1
-%else if
+%else
 %define tizen_audio_feature_hfp 0
 %endif
 
@@ -77,9 +83,10 @@ MMSound utility package - contians mm_sound_testsuite, sound_check for sound sys
 
 %if "%{?tizen_profile_name}" == "wearable"
 	CFLAGS+=" -DTIZEN_MICRO";export CFLAGS
-%else if "%{?tizen_profile_name}" == "mobile"
 %endif
-
+%if "%{?tizen_profile_name}" == "tv"
+        CFLAGS+=" -DTIZEN_TV";export CFLAGS
+%endif
 %if 0%{?tizen_audio_feature_bluetooth_enable}
 	CFLAGS+=" -DSUPPORT_BT_SCO";export CFLAGS
 %endif
@@ -120,34 +127,13 @@ ln -sf ../sound-server.path %{buildroot}%{_libdir}/systemd/system/multi-user.tar
 %post
 /sbin/ldconfig
 
-/usr/bin/vconftool set -t int memory/private/Sound/ASMReady 0 -g 29 -f -i -s system::vconf_multimedia
-/usr/bin/vconftool set -t double file/private/sound/volume/balance 0.0 -g 29 -f -s system::vconf_multimedia
-/usr/bin/vconftool set -t int file/private/sound/volume/muteall 0 -g 29 -f -s system::vconf_multimedia
-/usr/bin/vconftool set -t int memory/private/Sound/VoiceControlOn 0 -g 29 -f -i -s system::vconf_multimedia
-/usr/bin/vconftool set -t string memory/private/sound/booting "/usr/share/keysound/poweron.wav" -g 29 -f -i -s system::vconf_multimedia
-/usr/bin/vconftool set -t int memory/private/sound/PrimaryVolumetypeForce -1 -g 29 -f -i -s system::vconf_multimedia
-/usr/bin/vconftool set -t int memory/private/sound/PrimaryVolumetype -1 -g 29 -f -i -s system::vconf_multimedia
-/usr/bin/vconftool set -t int memory/private/sound/hdmisupport 0 -g 29 -f -i -s system::vconf_multimedia
-/usr/bin/vconftool set -t int memory/factory/loopback 0 -g 29 -f -i -s system::vconf_multimedia
-
-/usr/bin/vconftool set -t int file/private/sound/volume/system 9 -g 29 -f -s system::vconf_multimedia
-/usr/bin/vconftool set -t int file/private/sound/volume/notification 11 -g 29 -f -s system::vconf_multimedia
-/usr/bin/vconftool set -t int file/private/sound/volume/alarm 7 -g 29 -f -s system::vconf_multimedia
-/usr/bin/vconftool set -t int file/private/sound/volume/ringtone 11 -g 29 -f -s system::vconf_multimedia
-/usr/bin/vconftool set -t int file/private/sound/volume/media 7 -g 29 -f -s system::vconf_multimedia
-/usr/bin/vconftool set -t int file/private/sound/volume/call 4 -g 29 -f -s system::vconf_multimedia
-/usr/bin/vconftool set -t int file/private/sound/volume/voip 4 -g 29 -f -s system::vconf_multimedia
-/usr/bin/vconftool set -t int file/private/sound/volume/voice 7 -g 29 -f -s system::vconf_multimedia
-/usr/bin/vconftool set -t int file/private/sound/volume/fixed 0 -g 29 -f -s system::vconf_multimedia
-
-
 %postun -p /sbin/ldconfig
 
 
 %files
 %manifest libmm-sound.manifest
 %defattr(-,root,root,-)
-%{_bindir}/sound_server
+%caps(cap_chown,cap_dac_override,cap_fowner,cap_lease=eip) %{_bindir}/sound_server
 %{_libdir}/libmmfsound.so.*
 %{_libdir}/libmmfsoundcommon.so.*
 %{_libdir}/libmmfkeysound.so.*

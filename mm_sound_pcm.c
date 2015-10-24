@@ -761,6 +761,23 @@ int mm_sound_pcm_capture_stop(MMSoundPcmHandle_t handle)
 }
 
 EXPORT_API
+int mm_sound_pcm_capture_flush(MMSoundPcmHandle_t handle)
+{
+	int ret = 0;
+	mm_sound_pcm_t *pcmHandle = (mm_sound_pcm_t*)handle;
+
+	/* Check input param */
+	if(pcmHandle == NULL)
+		return MM_ERROR_INVALID_ARGUMENT;
+
+	debug_warning ("enter : handle=[%p]\n", handle);
+	ret = mm_sound_pa_flush(pcmHandle->handle);
+	debug_warning ("leave : handle=[%p], ret=[0x%X]\n", handle, ret);
+
+	return ret;
+}
+
+EXPORT_API
 int mm_sound_pcm_capture_read(MMSoundPcmHandle_t handle, void *buffer, const unsigned int length )
 {
 	int ret = 0;
@@ -1077,6 +1094,40 @@ int mm_sound_pcm_play_stop(MMSoundPcmHandle_t handle)
 
 	debug_warning ("enter : handle=[%p]\n", handle);
 	ret = _pcm_sound_stop(handle);
+	debug_warning ("leave : handle=[%p], ret=[0x%X]\n", handle, ret);
+
+	return ret;
+}
+
+EXPORT_API
+int mm_sound_pcm_play_drain(MMSoundPcmHandle_t handle)
+{
+	int ret = 0;
+	mm_sound_pcm_t *pcmHandle = (mm_sound_pcm_t*)handle;
+
+	/* Check input param */
+	if(pcmHandle == NULL)
+		return MM_ERROR_INVALID_ARGUMENT;
+
+	debug_warning ("enter : handle=[%p]\n", handle);
+	ret = mm_sound_pa_drain(pcmHandle->handle);
+	debug_warning ("leave : handle=[%p], ret=[0x%X]\n", handle, ret);
+
+	return ret;
+}
+
+EXPORT_API
+int mm_sound_pcm_play_flush(MMSoundPcmHandle_t handle)
+{
+	int ret = 0;
+	mm_sound_pcm_t *pcmHandle = (mm_sound_pcm_t*)handle;
+
+	/* Check input param */
+	if(pcmHandle == NULL)
+		return MM_ERROR_INVALID_ARGUMENT;
+
+	debug_warning ("enter : handle=[%p]\n", handle);
+	ret = mm_sound_pa_flush(pcmHandle->handle);
 	debug_warning ("leave : handle=[%p], ret=[0x%X]\n", handle, ret);
 
 	return ret;

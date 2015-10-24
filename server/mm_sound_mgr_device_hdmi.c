@@ -179,8 +179,10 @@ int _init_hdmi_audio_dbus(void)
 	return 0;
 
 sig_error:
-	g_dbus_connection_signal_unsubscribe(conn_hdmiaudio, sig_id_hdmiaudio);
-	g_object_unref(conn_hdmiaudio);
+	if (conn_hdmiaudio) {
+		g_dbus_connection_signal_unsubscribe(conn_hdmiaudio, sig_id_hdmiaudio);
+		g_object_unref(conn_hdmiaudio);
+	}
 
 error:
 	return -1;

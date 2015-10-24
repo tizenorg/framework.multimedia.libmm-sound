@@ -106,6 +106,10 @@ GMainLoop *g_mainloop;
 
 void* pulse_handle;
 
+extern int asm_server_snd_msgid;
+extern int asm_server_rcv_msgid;
+extern int asm_server_cb_msgid;
+
 gpointer event_loop_thread(gpointer data)
 {
 	g_mainloop = g_main_loop_new(NULL, TRUE);
@@ -119,16 +123,16 @@ gpointer event_loop_thread(gpointer data)
 static void __wait_for_asm_ready ()
 {
 	int retry_count = 0;
-	int asm_ready = 0;
-	while (!asm_ready) {
+	while (1) {
 		debug_msg("Checking ASM ready....[%d]\n", retry_count++);
-		if (vconf_get_int(ASM_READY_KEY, &asm_ready)) {
-			debug_warning("vconf_get_int for ASM_READY_KEY (%s) failed\n", ASM_READY_KEY);
+		if (asm_server_snd_msgid != -1 && asm_server_rcv_msgid != -1 && asm_server_cb_msgid != -1) {
+			break;
+		} else {
+			debug_warning("asm msg queues are not created yet..\n");
 		}
 		usleep (ASM_CHECK_INTERVAL);
 	}
-	debug_msg("ASM is now ready...clear the key!!!\n");
-	vconf_set_int(ASM_READY_KEY, 0);
+	debug_msg("ASM is now ready...\n");
 }
 
 static int _handle_power_off ()
@@ -194,7 +198,7 @@ int main(int argc, char **argv)
 
 	if (serveropt.startserver) {
 		if ((sem = sem_create_n_wait()) == NULL) {
-			debug_log("sem_create_n_wait failed..\n");
+			debug_error("sem_create_n_wait failed..\n");
 			return 0;
 		}
 	}
@@ -293,10 +297,12 @@ int main(int argc, char **argv)
 #endif
 		unlink(PA_READY); // remove pa_ready file after sound-server init.
 
-		if (sem_post(sem) == -1) {
-			debug_error ("error sem post : %d", errno);
-		} else {
-			debug_msg ("Ready to play booting sound!!!!");
+		if (sem) {
+			if (sem_post(sem) == -1) {
+				debug_error ("error sem post : %d", errno);
+			} else {
+				debug_msg ("Ready to play booting sound!!!!");
+			}
 		}
 		/* Start Ipc mgr */
 		MMSoundMgrIpcReady();

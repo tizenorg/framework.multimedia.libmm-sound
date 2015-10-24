@@ -293,8 +293,9 @@ typedef enum {
 	VOLUME_TYPE_VOICE,				/**< VOICE volume type */
 	VOLUME_TYPE_FIXED,				/**< Volume type for fixed acoustic level */
 	VOLUME_TYPE_MAX,				/**< Volume type count */
-	VOLUME_TYPE_EXT_ANDROID = VOLUME_TYPE_FIXED,		/**< External system volume for Android */
 } volume_type_t;
+
+#define VOLUME_TYPE_VCONF_MAX VOLUME_TYPE_VOICE + 1
 
 typedef enum {
 	VOLUME_GAIN_DEFAULT		= 0,
@@ -350,17 +351,6 @@ typedef void (*volume_callback_fn)(void* user_data);
  */
 typedef void (*mm_sound_volume_changed_cb) (volume_type_t type, unsigned int volume, void *user_data);
 
-
-/**
- * Muteall state change callback function type.
- *
- * @param	user_data		[in]	Argument passed when callback has called
- *
- * @return	No return value
- * @remark	None.
- * @see		mm_sound_muteall_add_callback mm_sound_muteall_remove_callback
- */
-typedef void (*muteall_callback_fn)(void* user_data);
 
 /**
  * This function is to retrieve number of volume level.
@@ -506,86 +496,6 @@ int mm_sound_volume_remove_callback(volume_type_t type);
 int mm_sound_remove_volume_changed_callback(void);
 
 /**
- * This function is to add muteall changed callback.
- *
- * @param	func			[in]	callback function pointer
- * @param	user_data		[in]	user data passing to callback function
- *
- * @return 	This function returns MM_ERROR_NONE on success, or negative value
- *			with error code.
- * @see		muteall_callback_fn
- * @code
-void _muteall_callback(void *data)
-{
-	int  muteall;
-
-	mm_sound_get_muteall(&muteall);
-	g_print("Muteall Callback Runs :::: muteall value = %d\n", muteall);
-}
-
-int muteall_callback()
-{
-	int ret = 0;
-
-	ret = mm_sound_muteall_add_callback( _muteall_callback);
-
-	if ( MM_ERROR_NONE != ret)
-	{
-		printf("Can not add callback\n");
-	}
-	else
-	{
-		printf("Add callback success\n");
-	}
-
-	return 0;
-}
-
- * @endcode
- */
-int mm_sound_muteall_add_callback(muteall_callback_fn func);
-
-
-/**
- * This function is to remove muteall changed callback.
- *
- * @param	func			[in]	callback function pointer
- *
- * @return 	This function returns MM_ERROR_NONE on success, or negative value
- *			with error code.
- * @remark	None.
- * @post	Callback function will not be called anymore.
- * @see		muteall_callback_fn
- * @code
-void _muteall_callback(void *data)
-{
-	printf("Callback function\n");
-}
-
-int muteall_callback()
-{
-	int ret = 0;
-
-	mm_sound_muteall_add_callback( _muteall_callback);
-
-	ret = mm_sound_muteall_remove_callback(_muteall_callback);
-	if ( MM_ERROR_NONE == ret)
-	{
-		printf("Remove callback success\n");
-	}
-	else
-	{
-		printf("Remove callback failed\n");
-	}
-
-	return ret;
-}
-
- * @endcode
- */
-int mm_sound_muteall_remove_callback(muteall_callback_fn func);
-
-/**
  * This function is to set volume level of certain volume type.
  *
  * @param	type			[in]	volume type to set value.
@@ -621,25 +531,6 @@ else
  * @endcode
  */
 int mm_sound_volume_set_value(volume_type_t type, const unsigned int value);
-
-
-
-
-
-
-/**
- * This function is to set all volume type to mute or unmute.
- *
- * @param	muteall			[in]	the switch to control  mute or unmute.
- *
- * @return 	This function returns MM_ERROR_NONE on success, or negative value
- *			with error code.
- * @remark	None.
- * @pre		None.
- * @post	None.
- */
-int mm_sound_mute_all(int muteall);
-
 
 
 /**
@@ -826,25 +717,87 @@ default:
  */
 int mm_sound_volume_get_current_playing_type(volume_type_t *type);
 
-int mm_sound_volume_set_balance (float balance);
-
-int mm_sound_volume_get_balance (float *balance);
-
-int mm_sound_set_muteall (int muteall);
-
-int mm_sound_get_muteall (int *muteall);
-
-int mm_sound_set_stereo_to_mono (int ismono);
-
-int mm_sound_get_stereo_to_mono (int *ismono);
+int mm_sound_volume_primary_type_get(volume_type_t *type);
 
 int mm_sound_set_call_mute(volume_type_t type, int mute);
 
 int mm_sound_get_call_mute(volume_type_t type, int *mute);
 
-int mm_sound_set_factory_loopback_test(int loopback);
+#ifdef TIZEN_TV
+/* Below API is for TV profile */
 
-int mm_sound_get_factory_loopback_test(int *loopback);
+typedef void (*master_volume_callback_fn)(unsigned int value, void* user_data);
+
+typedef void (*master_mute_callback_fn)(unsigned int value, void* user_data);
+
+/**
+* This function is to get master volume.
+*
+* @param   value	   [out]    volume value
+*
+* @return  This function returns MM_ERROR_NONE on success, or negative value
+*		   with error code.
+* @remark  None.
+* @see	   None
+* @pre	   None.
+* @post    None.
+* @par Example
+* @*/
+
+int mm_sound_volume_get_master(unsigned int *value);
+
+/**
+* This function is to set master volume.
+*
+* @param   value	   [in]    volume value
+*
+* @return  This function returns MM_ERROR_NONE on success, or negative value
+*		   with error code.
+* @remark  None.
+* @see	   None
+* @pre	   None.
+* @post    None.
+* @par Example
+* @*/
+
+int mm_sound_volume_set_master(const unsigned int value);
+
+int mm_sound_set_master_volume_changed_callback(master_volume_callback_fn func, void* user_data);
+int mm_sound_unset_master_volume_changed_callback(void);
+
+/**
+* This function is to get master mute.
+*
+* @param   value	   [out]    mute value
+*
+* @return  This function returns MM_ERROR_NONE on success, or negative value
+*		   with error code.
+* @remark  None.
+* @see	   None
+* @pre	   None.
+* @post    None.
+* @par Example
+* @*/
+int mm_sound_mute_get_master(bool *value);
+
+/**
+* This function is to set master mute.
+*
+* @param   value	   [in]    mute value
+*
+* @return  This function returns MM_ERROR_NONE on success, or negative value
+*		   with error code.
+* @remark  None.
+* @see	   None
+* @pre	   None.
+* @post    None.
+* @par Example
+* @*/
+int mm_sound_mute_set_master(const bool value);
+
+int mm_sound_set_master_mute_changed_callback(master_mute_callback_fn func, void* user_data);
+int mm_sound_unset_master_mute_changed_callback(void);
+#endif
 
 typedef enum {
 	MM_SOUND_FACTORY_MIC_TEST_STATUS_OFF = 0,
@@ -1016,6 +969,34 @@ int mm_sound_pcm_play_start(MMSoundPcmHandle_t handle);
  * @post	PCM playback data will not be buffered.
  */
 int mm_sound_pcm_play_stop(MMSoundPcmHandle_t handle);
+
+/**
+ * This function flush pcm playback
+ *
+ * @param	handle	[in] handle to flush playback
+ *
+ * @return	This function returns MM_ERROR_NONE on success, or negative value
+ *			with error code.
+ * @remark
+ * @see
+ * @pre		PCM playback handle should be allocated.
+ * @post	PCM playback data will not be buffered.
+ */
+int mm_sound_pcm_play_drain(MMSoundPcmHandle_t handle);
+
+/**
+ * This function flush pcm playback
+ *
+ * @param	handle	[in] handle to flush playback
+ *
+ * @return	This function returns MM_ERROR_NONE on success, or negative value
+ *			with error code.
+ * @remark
+ * @see
+ * @pre		PCM playback handle should be allocated.
+ * @post	PCM playback data will not be buffered.
+ */
+int mm_sound_pcm_play_flush(MMSoundPcmHandle_t handle);
 
 /**
  * This function is to play PCM memory buffer.
@@ -1349,6 +1330,20 @@ int mm_sound_pcm_capture_start(MMSoundPcmHandle_t handle);
  * @post	PCM capture data will not be buffered.
  */
 int mm_sound_pcm_capture_stop(MMSoundPcmHandle_t handle);
+
+/**
+ * This function flush pcm capture
+ *
+ * @param	handle	[in] handle to flush capture
+ *
+ * @return	This function returns MM_ERROR_NONE on success, or negative value
+ *			with error code.
+ * @remark
+ * @see
+ * @pre		PCM capture handle should be allocated.
+ * @post	PCM capture data will not be buffered.
+ */
+int mm_sound_pcm_capture_flush(MMSoundPcmHandle_t handle);
 
 /**
  * This function captures PCM to memory buffer. (Samsung extension)
@@ -2636,6 +2631,58 @@ int mm_sound_set_sound_path_for_active_device(mm_sound_device_out device_out, mm
 * @*/
 
 int mm_sound_get_audio_path(mm_sound_device_in *device_in, mm_sound_device_out *device_out);
+
+#ifdef TIZEN_TV
+/* Below API is for TV profile */
+typedef enum
+{
+	MM_SOUND_TV_OUTPUT_SPEAKER,
+	MM_SOUND_TV_OUTPUT_EXTERNAL_SPEAKER,
+	MM_SOUND_TV_OUTPUT_RECEIVER,
+	MM_SOUND_TV_OUTPUT_SOUND_SHARE,
+	MM_SOUND_TV_OUTPUT_MULTIROOM_LINK,
+	MM_SOUND_TV_OUTPUT_BT_HEADSET,
+	MM_SOUND_TV_OUTPUT_DUAL_BT_SPK,
+	MM_SOUND_TV_OUTPUT_MAX,
+} mm_sound_tv_output_device_t;
+
+typedef void (*output_device_callback_fn)(mm_sound_tv_output_device_t device, void* user_data);
+
+/**
+* This function is to get output device.
+*
+* @param   device	   [out]    output device
+*
+* @return  This function returns MM_ERROR_NONE on success, or negative value
+*		   with error code.
+* @remark  None.
+* @see	   None
+* @pre	   None.
+* @post    None.
+* @par Example
+* @*/
+
+int mm_sound_get_output_device(mm_sound_tv_output_device_t *device);
+
+/**
+* This function is to set output device.
+*
+* @param   device	   [in]    output device
+*
+* @return  This function returns MM_ERROR_NONE on success, or negative value
+*		   with error code.
+* @remark  None.
+* @see	   None
+* @pre	   None.
+* @post    None.
+* @par Example
+* @*/
+
+int mm_sound_set_output_device(mm_sound_tv_output_device_t device);
+
+int mm_sound_set_output_device_changed_callback(output_device_callback_fn func, void* user_data);
+int mm_sound_unset_output_device_changed_callback(void);
+#endif
 
 /**
 	@}

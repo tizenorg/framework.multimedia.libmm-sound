@@ -29,7 +29,7 @@
 #include "include/mm_sound.h"
 #include "include/mm_sound_device.h"
 
-bool is_new_device_list = true;
+__thread bool is_new_device_list = true;
 
 static int check_for_valid_mask (mm_sound_device_flags_e flags)
 {
@@ -167,6 +167,7 @@ int mm_sound_get_next_device (MMSoundDeviceList_t device_list, MMSoundDevice_t *
 		node = g_list_next(device_list_t->list);
 	}
 	if (!node) {
+		*device = NULL;
 		ret = MM_ERROR_SOUND_NO_DATA;
 	} else {
 		if (is_new_device_list) {
@@ -193,6 +194,7 @@ int mm_sound_get_prev_device (MMSoundDeviceList_t device_list, MMSoundDevice_t *
 	device_list_t = (mm_sound_device_list_t*) device_list;
 	node = g_list_previous(device_list_t->list);
 	if (!node) {
+		*device = NULL;
 		ret = MM_ERROR_SOUND_NO_DATA;
 		debug_error("Could not get previous device, ret = %x\n", ret);
 	} else {

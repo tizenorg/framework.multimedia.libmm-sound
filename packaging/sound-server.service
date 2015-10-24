@@ -1,7 +1,11 @@
 [Unit]
 Description=Start the sound profile service
+After=pulseaudio.service
 
 [Service]
+User=system
+Group=system
+SmackProcessLabel=sound_server
 ExecStart=/usr/bin/sound_server -S
 ExecStop=/usr/bin/sound_server --poweroff
 Restart=always

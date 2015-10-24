@@ -47,12 +47,9 @@
 #include <pulse/ext-policy.h>
 #include <pulse/ext-echo-cancel.h>
 
-#define SUPPORT_MONO_AUDIO
-#define SUPPORT_AUDIO_BALANCE
 #ifdef SUPPORT_BT_SCO
 #define SUPPORT_BT_SCO_DETECT
 #endif
-#define SUPPORT_AUDIO_MUTEALL
 
 #include "include/mm_sound_mgr_pulse.h"
 #include "include/mm_sound_mgr_session.h"
@@ -66,6 +63,8 @@
 
 #ifdef SUPPORT_BT_SCO_DETECT
 #include "bluetooth.h"
+#include <bluetooth_internal.h>
+#include <bluetooth_extension.h>
 #ifdef TIZEN_MICRO
 #include "bluetooth-api.h"
 #include "bluetooth-audio-api.h"
@@ -147,6 +146,13 @@ static const char* command_str[] =
 pthread_mutex_t g_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t g_bt_info_mutex = PTHREAD_MUTEX_INITIALIZER;
 int g_alloc_device_id = -1;
+
+enum {
+	BT_FLAG_SCO_AVAIL = 0x1,
+	BT_FLAG_A2DP_AVAIL = 0x2,
+	BT_FLAG_SCO_OPENED = 0x4,
+};
+static int g_bt_flag = 0;
 
 path_info_t g_path_info;
 pulse_info_t* pulse_info = NULL;
@@ -300,18 +306,21 @@ static void new_card_info_cb (pa_context *c, const pa_card_info *i, int eol, voi
 		const char* desc = pa_proplist_gets(i->proplist, PA_PROP_DEVICE_DESCRIPTION);
 		debug_msg ("name=[%s], bus=[%s], desc=[%s]", i->name, bus, desc);
 
-		if (g_alloc_device_id == -1) {
-			ret = MMSoundMgrDeviceUpdateStatus (DEVICE_UPDATE_STATUS_CONNECTED, DEVICE_TYPE_BLUETOOTH, DEVICE_IO_DIRECTION_BOTH, DEVICE_ID_AUTO, (desc)? desc : "NONAME", 0, &g_alloc_device_id);
+		if (!(g_bt_flag & BT_FLAG_SCO_AVAIL)) {
+			ret = MMSoundMgrDeviceUpdateStatus (DEVICE_UPDATE_STATUS_CONNECTED, DEVICE_TYPE_BLUETOOTH, DEVICE_IO_DIRECTION_OUT, DEVICE_ID_AUTO, (desc)? desc : "NONAME", 0, &g_alloc_device_id);
+			if (ret != MM_ERROR_NONE) {
+				/* TODO : Error Handling */
+				debug_error ("MMSoundMgrDeviceUpdateStatus failed....ret = [%x]", ret);
+			} else {
+				g_bt_flag |= BT_FLAG_A2DP_AVAIL;
+			}
+		}
+		if (!(g_bt_flag & BT_FLAG_SCO_OPENED)) {
+			ret = MMSoundMgrDeviceUpdateStatus (DEVICE_UPDATE_STATUS_CHANGED_INFO_IO_DIRECTION, DEVICE_TYPE_BLUETOOTH, DEVICE_IO_DIRECTION_OUT, g_alloc_device_id, (desc)? desc : "NONAME", 0, NULL);
 			if (ret != MM_ERROR_NONE) {
 				/* TODO : Error Handling */
 				debug_error ("MMSoundMgrDeviceUpdateStatus failed....ret = [%x]", ret);
 			}
-
-		}
-		ret = MMSoundMgrDeviceUpdateStatus (DEVICE_UPDATE_STATUS_CHANGED_INFO_IO_DIRECTION, DEVICE_TYPE_BLUETOOTH, DEVICE_IO_DIRECTION_OUT, g_alloc_device_id, (desc)? desc : "NONAME", 0, NULL);
-		if (ret != MM_ERROR_NONE) {
-			/* TODO : Error Handling */
-			debug_error ("MMSoundMgrDeviceUpdateStatus failed....ret = [%x]", ret);
 		}
 
 		/* Store BT index for future removal */
@@ -427,15 +436,13 @@ void *pulse_client_thread_run (void *args)
 			if (pinfo->device_type == DEVICE_BT_A2DP) {
 				debug_msg("DEVICE_BT_A2DP");
 				MMSoundMgrSessionSetDeviceAvailable (DEVICE_BT_A2DP, NOT_AVAILABLE, 0, NULL);
-				if (g_alloc_device_id != -1) {
-					device_io_direction_e prev_io_direction;
-					MMSoundMgrDeviceGetIoDirectionById (g_alloc_device_id, &prev_io_direction);
-					if (prev_io_direction == MM_SOUND_DEVICE_IO_DIRECTION_OUT) {
-						MMSoundMgrDeviceUpdateStatus (DEVICE_UPDATE_STATUS_CHANGED_INFO_IO_DIRECTION, DEVICE_TYPE_BLUETOOTH, MM_SOUND_DEVICE_IO_DIRECTION_BOTH, g_alloc_device_id, NULL, 0, 0);
-					}
-					MMSoundMgrDeviceUpdateStatus (DEVICE_UPDATE_STATUS_DISCONNECTED, DEVICE_TYPE_BLUETOOTH, MM_SOUND_DEVICE_IO_DIRECTION_BOTH, g_alloc_device_id, NULL, 0, 0);
+
+				 if ((g_bt_flag & BT_FLAG_A2DP_AVAIL) && !(g_bt_flag & BT_FLAG_SCO_AVAIL)) {
+					MMSoundMgrDeviceUpdateStatus (DEVICE_UPDATE_STATUS_DISCONNECTED, DEVICE_TYPE_BLUETOOTH, MM_SOUND_DEVICE_IO_DIRECTION_OUT, g_alloc_device_id, NULL, 0, 0);
 					g_alloc_device_id = -1;
 				}
+				g_bt_flag &= ~BT_FLAG_A2DP_AVAIL;
+
 				pinfo->bt_idx = PA_INVALID_INDEX;
 				pinfo->device_type = PA_INVALID_INDEX;
 			} else if(pinfo->device_type == DEVICE_USB_AUDIO) {
@@ -672,292 +679,6 @@ static void unload_hdmi_cb(pa_context *c, int success, void *userdata)
 	pa_threaded_mainloop_signal(pinfo->m, 0);
 }
 
-/* -------------------------------- MONO AUDIO --------------------------------------------*/
-#ifdef SUPPORT_MONO_AUDIO
-#define TOUCH_SOUND_PLAY_COMLETE_TIME 50000
-
-static void set_mono_cb (pa_context *c, int success, void *userdata)
-{
-	pulse_info_t *pinfo = (pulse_info_t *)userdata;
-	if (pinfo == NULL) {
-		debug_error ("pinfo is null");
-		return;
-	}
-
-	if (success) {
-		debug_msg ("[PA_CB] m[%p] c[%p] set mono success", pinfo->m, c);
-	} else {
-		debug_error("[PA_CB] m[%p] c[%p] set mono fail:%s", pinfo->m, c, pa_strerror(pa_context_errno(c)));
-	}
-	pa_threaded_mainloop_signal(pinfo->m, 0);
-}
-
-static void mono_changed_cb(keynode_t* node, void* data)
-{
-	int key_value;
-	pa_operation *o = NULL;
-	pulse_info_t* pinfo = (pulse_info_t*)data;
-
-	if (pinfo == NULL) {
-		debug_error ("pinfo is null");
-		return;
-	}
-
-	vconf_get_bool(VCONF_KEY_MONO_AUDIO, &key_value);
-	debug_msg ("%s changed callback called, key value = %d\n",vconf_keynode_get_name(node), key_value);
-	/*for make sure touch sound play complete*/
-	usleep(TOUCH_SOUND_PLAY_COMLETE_TIME);
-
-	pa_threaded_mainloop_lock(pinfo->m);
-	CHECK_CONTEXT_DEAD_GOTO(pinfo->context, unlock_and_fail);
-
-	debug_msg("[PA] pa_ext_policy_set_mono m[%p] c[%p] mono:%d", pinfo->m, pinfo->context, key_value);
-	o = pa_ext_policy_set_mono (pinfo->context, key_value, set_mono_cb, pinfo);
-	CHECK_CONTEXT_SUCCESS_GOTO(pinfo->context, o, unlock_and_fail);
-	while (pa_operation_get_state(o) == PA_OPERATION_RUNNING) {
-		pa_threaded_mainloop_wait(pinfo->m);
-		CHECK_CONTEXT_DEAD_GOTO(pinfo->context, unlock_and_fail);
-	}
-	pa_operation_unref(o);
-
-	pa_threaded_mainloop_unlock(pinfo->m);
-	return;
-
-unlock_and_fail:
-	if (o) {
-		pa_operation_cancel(o);
-		pa_operation_unref(o);
-	}
-	pa_threaded_mainloop_unlock(pinfo->m);
-}
-
-int MMSoundMgrPulseHandleRegisterMonoAudio (void* pinfo)
-{
-	int ret = vconf_notify_key_changed(VCONF_KEY_MONO_AUDIO, mono_changed_cb, pinfo);
-	debug_msg ("vconf [%s] set ret = %d\n", VCONF_KEY_MONO_AUDIO, ret);
-	return ret;
-}
-#endif /* SUPPORT_MONO_AUDIO */
-
-/* -------------------------------- Audio Balance --------------------------------------------*/
-#ifdef SUPPORT_AUDIO_BALANCE
-static void set_balance_cb (pa_context *c, int success, void *userdata)
-{
-	pulse_info_t *pinfo = (pulse_info_t *)userdata;
-	if (pinfo == NULL) {
-		debug_error ("pinfo is null");
-		return;
-	}
-
-	if (success) {
-		debug_msg ("[PA_CB] m[%p] c[%p] set balance success", pinfo->m, c);
-	} else {
-		debug_error("[PA_CB] m[%p] c[%p] set balance fail:%s", pinfo->m, c, pa_strerror(pa_context_errno(c)));
-	}
-	pa_threaded_mainloop_signal(pinfo->m, 0);
-}
-
-static void _balance_changed_cb(keynode_t* node, void* data)
-{
-	double balance_value;
-	pulse_info_t* pinfo = (pulse_info_t*)data;
-	pa_operation *o = NULL;
-
-	if (pinfo == NULL) {
-		debug_error ("pinfo is null");
-		return;
-	}
-
-	vconf_get_dbl(VCONF_KEY_VOLUME_BALANCE, &balance_value);
-	debug_msg ("%s changed callback called, balance value = %f\n",vconf_keynode_get_name(node), balance_value);
-
-	pa_threaded_mainloop_lock(pinfo->m);
-	CHECK_CONTEXT_DEAD_GOTO(pinfo->context, unlock_and_fail);
-
-	debug_msg("[PA] pa_ext_policy_set_balance m[%p] c[%p] balance:%.2f", pinfo->m, pinfo->context, balance_value);
-	o = pa_ext_policy_set_balance (pinfo->context, &balance_value, set_balance_cb, pinfo);
-	CHECK_CONTEXT_SUCCESS_GOTO(pinfo->context, o, unlock_and_fail);
-	while (pa_operation_get_state(o) == PA_OPERATION_RUNNING) {
-		pa_threaded_mainloop_wait(pinfo->m);
-		CHECK_CONTEXT_DEAD_GOTO(pinfo->context, unlock_and_fail);
-	}
-	pa_operation_unref(o);
-
-	pa_threaded_mainloop_unlock(pinfo->m);
-	return;
-
-unlock_and_fail:
-	if (o) {
-		pa_operation_cancel(o);
-		pa_operation_unref(o);
-	}
-	pa_threaded_mainloop_unlock(pinfo->m);
-}
-
-int MMSoundMgrPulseHandleRegisterAudioBalance (void* pinfo)
-{
-	int ret = vconf_notify_key_changed(VCONF_KEY_VOLUME_BALANCE, _balance_changed_cb, pinfo);
-	debug_msg ("vconf [%s] set ret = %d\n", VCONF_KEY_VOLUME_BALANCE, ret);
-	return ret;
-}
-
-void MMSoundMgrPulseHandleResetAudioBalanceOnBoot(void* data)
-{
-	double balance_value;
-	pulse_info_t* pinfo = (pulse_info_t*)data;
-	pa_operation *o = NULL;
-
-	if (pinfo == NULL) {
-		debug_error ("pinfo is null");
-		return;
-	}
-
-	if (vconf_get_dbl(VCONF_KEY_VOLUME_BALANCE, &balance_value)) {
-		debug_error ("vconf_get_dbl(VCONF_KEY_VOLUME_BALANCE) failed..\n");
-		balance_value = 0;
-		vconf_set_dbl(VCONF_KEY_VOLUME_BALANCE, balance_value);
-	} else {
-		pa_threaded_mainloop_lock(pinfo->m);
-		CHECK_CONTEXT_DEAD_GOTO(pinfo->context, unlock_and_fail);
-
-		debug_msg("[PA] pa_ext_policy_set_balance m[%p] c[%p] balance:%.2f", pinfo->m, pinfo->context, balance_value);
-		o = pa_ext_policy_set_balance (pinfo->context, &balance_value, set_balance_cb, pinfo);
-		CHECK_CONTEXT_SUCCESS_GOTO(pinfo->context, o, unlock_and_fail);
-		while (pa_operation_get_state(o) == PA_OPERATION_RUNNING) {
-			pa_threaded_mainloop_wait(pinfo->m);
-			CHECK_CONTEXT_DEAD_GOTO(pinfo->context, unlock_and_fail);
-		}
-		pa_operation_unref(o);
-
-		pa_threaded_mainloop_unlock(pinfo->m);
-	}
-	return;
-
-unlock_and_fail:
-	if (o) {
-		pa_operation_cancel(o);
-		pa_operation_unref(o);
-	}
-	pa_threaded_mainloop_unlock(pinfo->m);
-}
-#endif /* SUPPORT_AUDIO_BALANCE */
-
-
-#ifdef SUPPORT_AUDIO_MUTEALL
-static void set_muteall_cb (pa_context *c, int success, void *userdata)
-{
-	pulse_info_t *pinfo = (pulse_info_t *)userdata;
-	if (pinfo == NULL) {
-		debug_error ("pinfo is null");
-		return;
-	}
-
-	if (success) {
-		debug_msg ("[PA_CB] m[%p] c[%p] set muteall success", pinfo->m, c);
-	} else {
-		debug_error("[PA_CB] m[%p] c[%p] set muteall fail:%s", pinfo->m, c, pa_strerror(pa_context_errno(c)));
-	}
-	pa_threaded_mainloop_signal(pinfo->m, 0);
-}
-
-static void _muteall_changed_cb(keynode_t* node, void* data)
-{
-	int key_value;
-	int i;
-	pulse_info_t* pinfo = (pulse_info_t*)data;
-	pa_operation *o = NULL;
-
-	if (pinfo == NULL) {
-		debug_error ("pinfo is null\n");
-		return;
-	}
-
-	vconf_get_int(VCONF_KEY_MUTE_ALL, &key_value);
-	debug_msg ("%s changed callback called, muteall value = %d\n", vconf_keynode_get_name(node), key_value);
-
-	mm_sound_mute_all(key_value);
-
-	pa_threaded_mainloop_lock(pinfo->m);
-	CHECK_CONTEXT_DEAD_GOTO(pinfo->context, unlock_and_fail);
-
-	debug_msg("[PA] pa_ext_policy_set_muteall m[%p] c[%p] muteall:%d", pinfo->m, pinfo->context, key_value);
-	o = pa_ext_policy_set_muteall (pinfo->context, key_value, set_muteall_cb, pinfo);
-	CHECK_CONTEXT_SUCCESS_GOTO(pinfo->context, o, unlock_and_fail);
-	while (pa_operation_get_state(o) == PA_OPERATION_RUNNING) {
-		pa_threaded_mainloop_wait(pinfo->m);
-		CHECK_CONTEXT_DEAD_GOTO(pinfo->context, unlock_and_fail);
-	}
-	pa_operation_unref(o);
-
-	pa_threaded_mainloop_unlock(pinfo->m);
-
-	if (!key_value) {
-		for (i =0;i<VOLUME_TYPE_MAX;i++) {
-			unsigned int vconf_value;
-			mm_sound_volume_get_value(i,&vconf_value);
-			mm_sound_volume_set_value(i,vconf_value);
-		}
-	}
-	return;
-
-unlock_and_fail:
-	if (o) {
-		pa_operation_cancel(o);
-		pa_operation_unref(o);
-	}
-	pa_threaded_mainloop_unlock(pinfo->m);
-}
-
-int MMSoundMgrPulseHandleRegisterAudioMuteall (void* pinfo)
-{
-	int ret = vconf_notify_key_changed(VCONF_KEY_MUTE_ALL, _muteall_changed_cb, pinfo);
-	debug_msg ("vconf [%s] set ret = %d\n", VCONF_KEY_MUTE_ALL, ret);
-	return ret;
-}
-
-void MMSoundMgrPulseHandleResetAudioMuteallOnBoot(void* data)
-{
-	int key_value;
-	pulse_info_t* pinfo = (pulse_info_t*)data;
-	pa_operation *o = NULL;
-
-	if (pinfo == NULL) {
-		debug_error ("pinfo is null\n");
-		return;
-	}
-
-	if (vconf_get_int(VCONF_KEY_MUTE_ALL, &key_value)) {
-		debug_error ("vconf_get_int(VCONF_KEY_MUTE_ALL) failed..\n");
-		key_value = 0;
-		vconf_set_int(VCONF_KEY_MUTE_ALL, key_value);
-	} else {
-		mm_sound_mute_all(key_value);
-
-		pa_threaded_mainloop_lock(pinfo->m);
-		CHECK_CONTEXT_DEAD_GOTO(pinfo->context, unlock_and_fail);
-
-		debug_msg("[PA] pa_ext_policy_set_muteall m[%p] c[%p] muteall:%d", pinfo->m, pinfo->context, key_value);
-		o = pa_ext_policy_set_muteall (pinfo->context, key_value, set_muteall_cb, pinfo);
-		CHECK_CONTEXT_SUCCESS_GOTO(pinfo->context, o, unlock_and_fail);
-		while (pa_operation_get_state(o) == PA_OPERATION_RUNNING) {
-			pa_threaded_mainloop_wait(pinfo->m);
-			CHECK_CONTEXT_DEAD_GOTO(pinfo->context, unlock_and_fail);
-		}
-		pa_operation_unref(o);
-
-		pa_threaded_mainloop_unlock(pinfo->m);
-	}
-	return;
-
-unlock_and_fail:
-	if (o) {
-		pa_operation_cancel(o);
-		pa_operation_unref(o);
-	}
-	pa_threaded_mainloop_unlock(pinfo->m);
-}
-#endif /* SUPPORT_AUDIO_MUTEALL */
-
 /* -------------------------------- BT SCO --------------------------------------------*/
 #ifdef SUPPORT_BT_SCO_DETECT
 
@@ -1056,28 +777,28 @@ static void __bt_audio_connection_state_changed_cb(int result,
 			return;
 		}
 
-		debug_msg("connection state changed. connected(%s), type(%s), address(%s), result(%d)\n",
+		debug_msg("connection state changed. connected(%s), type(%s), address(%s), result(%d), g_bt_flag(0x%x)\n",
 			connected == true ? "connected" : "disconnected",
 			(type >= 0 && type < length) ? type_str[type] : "unknown type",
-			remote_address != NULL ? remote_address : "NULL", result);
+			remote_address != NULL ? remote_address : "NULL", result, g_bt_flag);
 
-		/* Set SCO Device available */
+		/* Set SCO Device available, only manage SCO here. */
 		if (type == BT_AUDIO_PROFILE_TYPE_HSP_HFP) {
 			device_io_direction_e io_direction = DEVICE_IO_DIRECTION_BOTH;
-			if (connected && (g_alloc_device_id == -1) ) {
-				MMSoundMgrDeviceUpdateStatus (DEVICE_UPDATE_STATUS_CONNECTED, DEVICE_TYPE_BLUETOOTH, io_direction, DEVICE_ID_AUTO, NULL, 0, &g_alloc_device_id);
+			if (connected) {
+				if (!(g_bt_flag & BT_FLAG_SCO_AVAIL) && !(g_bt_flag & BT_FLAG_A2DP_AVAIL)) {
+					MMSoundMgrDeviceUpdateStatus (DEVICE_UPDATE_STATUS_CONNECTED, DEVICE_TYPE_BLUETOOTH, io_direction, DEVICE_ID_AUTO, NULL, 0, &g_alloc_device_id);
+				}
+				g_bt_flag |= BT_FLAG_SCO_AVAIL;
 			}
 			MMSoundMgrSessionSetDeviceAvailable (DEVICE_BT_SCO, connected, 0, NULL);
 
-			if (!connected && (g_alloc_device_id != -1)) {
-				int ret = MM_ERROR_NONE;
-				device_io_direction_e prev_io_direction;
-				ret = MMSoundMgrDeviceGetIoDirectionById (g_alloc_device_id, &prev_io_direction);
-				if (prev_io_direction == MM_SOUND_DEVICE_IO_DIRECTION_OUT) {
-					MMSoundMgrDeviceUpdateStatus (DEVICE_UPDATE_STATUS_CHANGED_INFO_IO_DIRECTION, DEVICE_TYPE_BLUETOOTH, MM_SOUND_DEVICE_IO_DIRECTION_BOTH, g_alloc_device_id, NULL, 0, 0);
+			if (!connected) {
+				if ((g_bt_flag & BT_FLAG_SCO_AVAIL) && !(g_bt_flag & BT_FLAG_A2DP_AVAIL)) {
+					MMSoundMgrDeviceUpdateStatus (DEVICE_UPDATE_STATUS_DISCONNECTED, DEVICE_TYPE_BLUETOOTH, MM_SOUND_DEVICE_IO_DIRECTION_BOTH, g_alloc_device_id, NULL, 0, 0);
+					g_alloc_device_id = -1;
 				}
-				MMSoundMgrDeviceUpdateStatus (DEVICE_UPDATE_STATUS_DISCONNECTED, DEVICE_TYPE_BLUETOOTH, MM_SOUND_DEVICE_IO_DIRECTION_BOTH, g_alloc_device_id, NULL, 0, 0);
-				g_alloc_device_id = -1;
+				g_bt_flag &= ~BT_FLAG_SCO_AVAIL;
 			}
 		}
 		debug_msg("connection state changed end\n");
@@ -1094,9 +815,18 @@ static void __bt_ag_sco_state_changed_cb(int result, bool opened, void *user_dat
 	debug_msg("bt ag-sco state changed. opend(%d), ag_init(%d)\n", opened, pinfo->ag_init);
 
 	if(pinfo->ag_init == true) {
+		if (opened) {
+			MMSoundMgrDeviceUpdateStatus (DEVICE_UPDATE_STATUS_CHANGED_INFO_IO_DIRECTION, DEVICE_TYPE_BLUETOOTH, DEVICE_IO_DIRECTION_BOTH, DEVICE_ID_AUTO, NULL, DEVICE_STATE_DEACTIVATED, NULL);
+			g_bt_flag |= BT_FLAG_SCO_OPENED;
+		} else {
+			MMSoundMgrDeviceUpdateStatus (DEVICE_UPDATE_STATUS_CHANGED_INFO_IO_DIRECTION, DEVICE_TYPE_BLUETOOTH, DEVICE_IO_DIRECTION_OUT, DEVICE_ID_AUTO, NULL, DEVICE_STATE_DEACTIVATED, NULL);
+			g_bt_flag &= ~BT_FLAG_SCO_OPENED;
+		}
 		MMSoundMgrSessionGetSession(&session);
-		if (session == SESSION_VOICECALL) {
-			debug_warning("SESSION(SESSION_VOICECALL), we don't handle sco stat in call session. sound-path should be routed in active device function by call app\n");
+		if (session == SESSION_VOICECALL ||
+			session == SESSION_VIDEOCALL ||
+			session == SESSION_VOIP) {
+			debug_warning("SESSION(%d), we don't handle sco stat in call session. sound-path should be routed in active device function by call app\n", session);
 			return;
 		}
 
@@ -1925,40 +1655,6 @@ unlock_and_fail:
 	debug_leave("\n");
 }
 
-void MMSoundMgrPulseSetMuteall(int mute)
-{
-	pa_operation *o = NULL;
-
-	debug_msg("all streams are %s. pulse_info(0x%x)", mute ? "muted" : "unmuted", pulse_info);
-
-	if (pa_threaded_mainloop_in_thread(pulse_info->m)) {
-        o = pa_ext_policy_set_muteall (pulse_info->context, mute, set_muteall_cb, pulse_info);
-		pa_operation_unref(o);
-	} else {
-		pa_threaded_mainloop_lock(pulse_info->m);
-		CHECK_CONTEXT_DEAD_GOTO(pulse_info->context, muteall_and_fail);
-        o = pa_ext_policy_set_muteall (pulse_info->context, mute, set_muteall_cb, pulse_info);
-		CHECK_CONTEXT_SUCCESS_GOTO(pulse_info->context, o, muteall_and_fail);
-		while (pa_operation_get_state(o) == PA_OPERATION_RUNNING) {
-			pa_threaded_mainloop_wait(pulse_info->m);
-			CHECK_CONTEXT_DEAD_GOTO(pulse_info->context, muteall_and_fail);
-		}
-		pa_operation_unref(o);
-
-		pa_threaded_mainloop_unlock(pulse_info->m);
-	}
-	debug_leave("\n");
-	return;
-
-muteall_and_fail:
-	if (o) {
-		pa_operation_cancel(o);
-		pa_operation_unref(o);
-	}
-	pa_threaded_mainloop_unlock(pulse_info->m);
-	debug_leave("\n");
-}
-
 void MMSoundMgrPulseSetVoicecontrolState (bool state)
 {
 	pa_operation *o = NULL;
@@ -2010,45 +1706,6 @@ static void _recorder_changed_cb(keynode_t* node, void* data)
 	debug_msg ("%s changed callback called, recorder state value = %d\n", vconf_keynode_get_name(node), key_value);
 
 	MMSoundMgrSessionGetSession(&session);
-
-	if ((key_value == VCONFKEY_RECORDER_STATE_RECORDING || key_value == VCONFKEY_RECORDER_STATE_RECORDING_PAUSE) && session == SESSION_FMRADIO) {
-		vconf_set_int(VCONF_KEY_FMRADIO_RECORDING, 1);
-	} else {
-		vconf_set_int(VCONF_KEY_FMRADIO_RECORDING, 0);
-	}
-}
-
-int MMSoundMgrPulseHandleRegisterFMRadioRecording(void* pinfo)
-{
-	int ret = vconf_notify_key_changed(VCONFKEY_RECORDER_STATE, _recorder_changed_cb, pinfo);
-	debug_msg ("vconf [%s] set ret = %d\n", VCONFKEY_RECORDER_STATE, ret);
-
-	return ret;
-}
-
-static void _poweroff_changed_cb(keynode_t* node, void* data)
-{
-	int key_value;
-	pulse_info_t* pinfo = (pulse_info_t*)data;
-
-	if (pinfo == NULL) {
-		debug_error ("pinfo is null\n");
-		return;
-	}
-
-	vconf_get_int(VCONFKEY_SYSMAN_POWER_OFF_STATUS, &key_value);
-	debug_msg ("%s changed callback called, poweroff value = %d\n", vconf_keynode_get_name(node), key_value);
-
-	if (key_value >= VCONFKEY_SYSMAN_POWER_OFF_DIRECT) {
-		MMSoundMgrPulseSetMuteall(1);
-	}
-}
-
-int MMSoundMgrPulseHandleRegisterPowerOffMuteall(void* pinfo)
-{
-	int ret = vconf_notify_key_changed(VCONFKEY_SYSMAN_POWER_OFF_STATUS, _poweroff_changed_cb, pinfo);
-	debug_msg ("vconf [%s] set ret = %d\n", VCONFKEY_SYSMAN_POWER_OFF_STATUS, ret);
-	return ret;
 }
 
 void MMSoundMgrPulseUnLoadHDMI()
@@ -2355,14 +2012,6 @@ static void set_active_device_cb(pa_context *c, int success, int need_update, vo
 	}
 
 	pa_threaded_mainloop_signal(pinfo->m, 0);
-
-	if (need_update) {
-		debug_msg("[PA] pa_ext_policy_set_active_device need to update volume.");
-		if(MM_ERROR_NONE != _mm_sound_mgr_device_update_volume()) {
-			debug_error ("_mm_sound_mgr_device_update_volume failed.");
-		}
-	}
-
 }
 
 static void set_active_device_nosignal_cb(pa_context *c, int success, int need_update, void *userdata)
@@ -2377,13 +2026,6 @@ static void set_active_device_nosignal_cb(pa_context *c, int success, int need_u
 		debug_msg ("[PA_CB] c[%p] set active device success. need_update(%d)", c, need_update);
 	} else {
 		debug_error("[PA_CB] c[%p] set active device fail:%s", c, pa_strerror(pa_context_errno(c)));
-	}
-
-	if (need_update) {
-		debug_msg("[PA] pa_ext_policy_set_active_device need to update volume.");
-		if(MM_ERROR_NONE != _mm_sound_mgr_device_update_volume()) {
-			debug_error ("_mm_sound_mgr_device_update_volume failed.");
-		}
 	}
 }
 
@@ -2562,40 +2204,8 @@ static void set_update_volume_nosignal_cb(pa_context *c, int success, void *user
 	}
 }
 
-void MMSoundMgrPulseUpdateVolume(void)
-{
-	pa_operation *o = NULL;
-
-	if (pa_threaded_mainloop_in_thread(pulse_info->m)) {
-		o = pa_ext_policy_update_volume(pulse_info->context, set_update_volume_nosignal_cb, pulse_info);
-		pa_operation_unref(o);
-	} else {
-		pa_threaded_mainloop_lock(pulse_info->m);
-		CHECK_CONTEXT_DEAD_GOTO(pulse_info->context, unlock_and_fail);
-
-		debug_msg("[PA] pa_ext_update_volume m[%p] c[%p]", pulse_info->m, pulse_info->context);
-		o = pa_ext_policy_update_volume(pulse_info->context, set_update_volume_cb, pulse_info);
-		CHECK_CONTEXT_SUCCESS_GOTO(pulse_info->context, o, unlock_and_fail);
-		while (pa_operation_get_state(o) == PA_OPERATION_RUNNING) {
-			pa_threaded_mainloop_wait(pulse_info->m);
-			CHECK_CONTEXT_DEAD_GOTO(pulse_info->context, unlock_and_fail);
-		}
-		pa_operation_unref(o);
-		pa_threaded_mainloop_unlock(pulse_info->m);
-	}
-	return;
-
-unlock_and_fail:
-	if (o) {
-		pa_operation_cancel(o);
-		pa_operation_unref(o);
-	}
-	pa_threaded_mainloop_unlock(pulse_info->m);
-}
 
 /* -------------------------------- booting sound  --------------------------------------------*/
-
-#define VCONF_BOOTING "memory/private/sound/booting"
 
 static void __pa_context_success_cb (pa_context *c, int success, void *userdata)
 {
@@ -2625,7 +2235,7 @@ static void _booting_changed_cb(keynode_t* node, void* data)
 		return;
 	}
 
-	booting = vconf_get_str(VCONF_BOOTING);
+	booting = vconf_get_str(VCONFKEY_SOUND_BOOT_SOUND);
 	debug_msg ("%s changed callback called, booting value = %s\n",vconf_keynode_get_name(node), booting);
 	if (booting) {
 		free(booting);
@@ -2657,8 +2267,8 @@ unlock_and_fail:
 
 int MMSoundMgrPulseHandleRegisterBooting (void* pinfo)
 {
-	int ret = vconf_notify_key_changed(VCONF_BOOTING, _booting_changed_cb, pinfo);
-	debug_msg ("vconf [%s] set ret = %d\n", VCONF_BOOTING, ret);
+	int ret = vconf_notify_key_changed(VCONFKEY_SOUND_BOOT_SOUND, _booting_changed_cb, pinfo);
+	debug_msg ("vconf [%s] set ret = %d\n", VCONFKEY_SOUND_BOOT_SOUND, ret);
 	return ret;
 }
 
@@ -2678,18 +2288,6 @@ void* MMSoundMgrPulseInit(void)
 	pulse_info->usb_idx = PA_INVALID_INDEX;
 	pulse_info->dock_idx = PA_INVALID_INDEX;
 	pulse_info->device_type = PA_INVALID_INDEX;
-#ifdef SUPPORT_MONO_AUDIO
-	MMSoundMgrPulseHandleRegisterMonoAudio(pulse_info);
-#endif
-#ifdef SUPPORT_AUDIO_BALANCE
-	MMSoundMgrPulseHandleRegisterAudioBalance(pulse_info);
-	MMSoundMgrPulseHandleResetAudioBalanceOnBoot(pulse_info);
-#endif
-
-#ifdef SUPPORT_AUDIO_MUTEALL
-	MMSoundMgrPulseHandleRegisterAudioMuteall(pulse_info);
-	MMSoundMgrPulseHandleResetAudioMuteallOnBoot(pulse_info);
-#endif
 #ifdef SUPPORT_BT_SCO
 	MMSoundMgrPulseHandleRegisterBluetoothStatus(pulse_info);
 #endif

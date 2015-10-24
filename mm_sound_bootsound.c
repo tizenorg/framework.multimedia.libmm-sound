@@ -41,7 +41,6 @@
 #include <mm_sound.h>
 #include <mm_sound_private.h>
 
-#define VCONF_BOOTING "memory/private/sound/booting"
 #define MAX_RETRY 40
 #define RETRY_INTERVAL_USEC 50000
 
@@ -79,7 +78,7 @@ int mm_sound_boot_play_sound(char* path)
     if (path == NULL)
         return -1;
 
-    return vconf_set_str(VCONF_BOOTING, path);
+    return vconf_set_str(VCONFKEY_SOUND_BOOT_SOUND, path);
 }
 
 

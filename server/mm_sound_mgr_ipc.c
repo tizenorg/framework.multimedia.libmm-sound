@@ -462,8 +462,8 @@ static void _MMSoundMgrRun(void *data)
 			respmsg.sound_msg.total_device_num = total_num_of_device;
 			for (list = device_list; list != NULL; list = list->next) {
 				memcpy(&(respmsg.sound_msg.device_handle), (mm_sound_device_t*)list->data, sizeof(mm_sound_device_t));
-				debug_msg("[Server] memory copied to msg device handle(handle[0x%x], type[%d], id[%d]), before sending device info, total [%d] msg remains\n",
-						&(respmsg.sound_msg.device_handle), ((mm_sound_device_t*)list->data)->type, ((mm_sound_device_t*)list->data)->id, total_num_of_device);
+				debug_msg("[Server] memory copied to msg device handle(handle[0x%x], type[%d], direction[0x%x], id[%d]), before sending device info, total [%d] msg remains\n",
+						&(respmsg.sound_msg.device_handle), ((mm_sound_device_t*)list->data)->type, ((mm_sound_device_t*)list->data)->io_direction,((mm_sound_device_t*)list->data)->id, total_num_of_device);
 				if (total_num_of_device-- > 1) {
 					ret = _MMIpcSndMsg(&respmsg);
 					if (ret != MM_ERROR_NONE) {
@@ -1100,7 +1100,8 @@ int __mm_sound_mgr_ipc_freeze_send (char* command, int pid)
 {
 	GError *err = NULL;
 	GDBusConnection *conn = NULL;
-	gboolean ret;
+	gboolean dbus_ret;
+	int ret = MM_ERROR_NONE;
 
 	if (command == NULL || pid <= 0) {
 		debug_error ("invalid arguments [%s][%d]", command, pid);
@@ -1110,34 +1111,36 @@ int __mm_sound_mgr_ipc_freeze_send (char* command, int pid)
 	conn = g_bus_get_sync(G_BUS_TYPE_SYSTEM, NULL, &err);
 	if (!conn && err) {
 		debug_error ("g_bus_get_sync() error (%s) ", err->message);
-		g_error_free (err);
-		return -1;
+		ret = MM_ERROR_SOUND_INTERNAL;
+		goto end;
 	}
 
-	ret = g_dbus_connection_emit_signal (conn,
+	dbus_ret = g_dbus_connection_emit_signal (conn,
 				NULL, PROC_DBUS_OBJECT, PROC_DBUS_INTERFACE, PROC_DBUS_METHOD,
 				g_variant_new ("(si)", command, pid),
 				&err);
-	if (!ret && err) {
+	if (!dbus_ret && err) {
 		debug_error ("g_dbus_connection_emit_signal() error (%s) ", err->message);
-		goto error;
+		ret = MM_ERROR_SOUND_INTERNAL;
+		goto end;
 	}
 
-	ret = g_dbus_connection_flush_sync(conn, NULL, &err);
-	if (!ret && err) {
+	dbus_ret = g_dbus_connection_flush_sync(conn, NULL, &err);
+	if (!dbus_ret && err) {
 		debug_error ("g_dbus_connection_flush_sync() error (%s) ", err->message);
-		goto error;
+		ret = MM_ERROR_SOUND_INTERNAL;
+		goto end;
 	}
 
-	g_object_unref(conn);
-	debug_msg ("sending [%s] for pid (%d) success", command, pid);
+end:
+	if (err)
+		g_error_free (err);
+	if (conn)
+		g_object_unref(conn);
 
-	return 0;
+	debug_msg ("sending [%s] for pid (%d) %s", command, pid, ret == MM_ERROR_NONE ? "success" : "failed");
 
-error:
-	g_error_free (err);
-	g_object_unref(conn);
-	return -1;
+	return ret;
 }
 
 static int _MMIpcRecvMsg(int msgtype, mm_ipc_msg_t *msg)

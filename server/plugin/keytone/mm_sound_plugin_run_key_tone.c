@@ -45,7 +45,7 @@
 #include "../../include/mm_sound_plugin_codec.h"
 #include "../../../include/mm_sound_utils.h"
 #include "../../../include/mm_sound_common.h"
-#include "../../include/mm_sound_pa_client.h"
+#include "../../../include/mm_sound_pa_client.h"
 
 #ifdef OGG_SUPPORT
 #include <tremolo_vorbisdec_api.h>
@@ -273,7 +273,9 @@ static int _init_dbus_keytone ()
 
 sig_error:
 	g_dbus_connection_signal_unsubscribe(conn, sig_id);
-	g_object_unref(conn);
+	if (conn) {
+		g_object_unref(conn);
+	}
 
 error:
 	return -1;

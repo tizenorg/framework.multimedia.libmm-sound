@@ -1,9 +1,9 @@
 /*
  * libmm-sound
  *
- * Copyright (c) 2000 - 2011 Samsung Electronics Co., Ltd. All rights reserved.
+ * Copyright (c) 2000 - 2015 Samsung Electronics Co., Ltd. All rights reserved.
  *
- * Contact: Seungbae Shin <seungbae.shin@samsung.com>
+ * Contact: Sangchul Lee <sc11.lee at samsung.com>, Inhyeok Kim <i_bc.kim at samsung.com>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -192,9 +192,9 @@ typedef struct asm_compare_result
 	asm_instance_list_t* incoming_asm_handle[SERVER_HANDLE_MAX_COUNT];
 } asm_compare_result_t;
 
-int asm_snd_msgid;
-int asm_rcv_msgid;
-int asm_cb_msgid;
+int asm_server_snd_msgid = -1;
+int asm_server_rcv_msgid = -1;
+int asm_server_cb_msgid = -1;
 
 bool asm_is_send_msg_to_cb = false;
 
@@ -315,9 +315,17 @@ static char *subevent_str[] =
 	"SUB_EVENT_EXCLUSIVE"
 };
 
-#define ASM_SND_MSG_SET_DEFAULT(asm_snd_msg, x_instance_id, x_alloc_handle, x_cmd_handle, x_source_request_id) \
+#define ASM_SND_MSG_SET_REGISTER(asm_snd_msg, x_instance_id, x_alloc_handle, x_cmd_handle, x_source_request_id) \
 do { \
-	asm_snd_msg.instance_id               = x_instance_id; \
+	asm_snd_msg.msg_id                    = x_instance_id; \
+	asm_snd_msg.data.alloc_handle         = x_alloc_handle; \
+	asm_snd_msg.data.cmd_handle           = x_cmd_handle; \
+	asm_snd_msg.data.source_request_id    = x_source_request_id; \
+} while (0)
+
+#define ASM_SND_MSG_SET_DEFAULT(asm_snd_msg, x_alloc_handle, x_cmd_handle, x_source_request_id) \
+do { \
+	asm_snd_msg.msg_id                    = x_alloc_handle; \
 	asm_snd_msg.data.alloc_handle         = x_alloc_handle; \
 	asm_snd_msg.data.cmd_handle           = x_cmd_handle; \
 	asm_snd_msg.data.source_request_id    = x_source_request_id; \
@@ -1176,9 +1184,9 @@ void ___update_phone_status()
 		temp_list = temp_list->next;
 	}
 
-	if (vconf_set_int(SOUND_STATUS_KEY, g_sound_status_playing)) {
+	if ((error = vconf_set_int(SOUND_STATUS_KEY, g_sound_status_playing))) {
 		debug_error("[ASM_Server[Error = %d][1st try] phonestatus_set \n", error);
-		if (vconf_set_int(SOUND_STATUS_KEY, g_sound_status_playing)) {
+		if ((error = vconf_set_int(SOUND_STATUS_KEY, g_sound_status_playing))) {
 			debug_error("[Error = %d][2nd try]  phonestatus_set \n", error);
 		}
 	}
@@ -1261,35 +1269,33 @@ int __asm_unregister_list(int handle)
 	return instance_id;
 }
 
-/* -------------------------
- * if PID exist return true, else return false
- */
-gboolean ___is_pid_exist(int pid)
-{
-	if (pid > 999999 || pid < 2)
-		return FALSE;
-	gchar *tmp = g_malloc0(25);
-	if (!tmp)
-		return FALSE;
-	g_sprintf(tmp, "/proc/%d", pid);
-	if (access(tmp, R_OK)==0) {
-		g_free(tmp);
-		return TRUE;
-	}
-	g_free(tmp);
-	return FALSE;
-}
-
-/* -------------------------
- *
- */
-void __check_dead_process()
+static void __check_dead_process()
 {
 	asm_instance_list_t *temp_list = head_list_ptr;
 	asm_instance_list_t *temp_list_prev = head_list_ptr;
 	while (temp_list != NULL) {
-		if (!___is_pid_exist(temp_list->instance_id)) {
+		if (!mm_sound_util_is_process_alive(temp_list->instance_id)) {
 			debug_warning(" PID(%d) not exist! -> ASM_Server resource of pid(%d) will be cleared \n", temp_list->instance_id, temp_list->instance_id);
+			char str_error[256];
+			char* filename = g_strdup_printf("/tmp/ASM.%d.%d", temp_list->instance_id, temp_list->sound_handle);
+			char* filename2 = g_strdup_printf("/tmp/ASM.%d.%dr", temp_list->instance_id, temp_list->sound_handle);
+			if (!remove(filename)) {
+				debug_log(" remove %s success\n", filename);
+			} else {
+				strerror_r (errno, str_error, sizeof (str_error));
+				debug_error(" remove %s failed with %s\n", filename, str_error);
+			}
+
+			if (!remove(filename2)) {
+				debug_log(" remove %s success\n", filename2);
+			} else {
+				strerror_r (errno, str_error, sizeof (str_error));
+				debug_error(" remove %s failed with %s\n", filename2, str_error);
+			}
+
+			g_free(filename);
+			g_free(filename2);
+
 			if(temp_list->sound_event == ASM_EVENT_MMCAMCORDER_AUDIO || temp_list->sound_event == ASM_EVENT_MMCAMCORDER_VIDEO) {
 				debug_warning("dead process was camcorder init vconf");
 				vconf_set_int(VCONFKEY_RECORDER_STATE, 0);
@@ -1315,7 +1321,7 @@ void __check_dead_process()
 			}
 		} else {
 			if (temp_list->paused_by_id.pid) {
-				if (!___is_pid_exist(temp_list->paused_by_id.pid)) {
+				if (!mm_sound_util_is_process_alive(temp_list->paused_by_id.pid)) {
 					temp_list->need_resume = ASM_NEED_NOT_RESUME;
 					temp_list->paused_by_id.pid = 0;
 					temp_list->paused_by_id.sound_handle = ASM_HANDLE_INIT_VAL;
@@ -1557,24 +1563,36 @@ void __asm_change_need_resume_list(int instance_id, int handle, ASM_resume_state
 
 void __asm_create_message_queue()
 {
-	asm_rcv_msgid = msgget((key_t)2014, 0666 | IPC_CREAT);
-	asm_snd_msgid = msgget((key_t)4102, 0666 | IPC_CREAT);
-	asm_cb_msgid = msgget((key_t)4103, 0666 | IPC_CREAT);
+	asm_server_rcv_msgid = msgget((key_t)2014, 0666 | IPC_CREAT);
+	asm_server_snd_msgid = msgget((key_t)4102, 0666 | IPC_CREAT);
+	asm_server_cb_msgid = msgget((key_t)4103, 0666 | IPC_CREAT);
 
-	if (asm_snd_msgid == -1 || asm_rcv_msgid == -1 || asm_cb_msgid == -1) {
+	if (asm_server_snd_msgid == -1 || asm_server_rcv_msgid == -1 || asm_server_cb_msgid == -1) {
 		debug_error(" msgget failed with error(%d,%s) \n", errno, strerror(errno));
 		exit(EXIT_FAILURE);
 	}
 }
 
+void __asm_destroy_message_queue()
+{
+	if (asm_server_snd_msgid != -1 || asm_server_rcv_msgid != -1 || asm_server_cb_msgid != -1) {
+		msgctl(asm_server_rcv_msgid, IPC_RMID, NULL);
+		msgctl(asm_server_snd_msgid, IPC_RMID, NULL);
+		msgctl(asm_server_cb_msgid, IPC_RMID, NULL);
+		asm_server_snd_msgid = -1;
+		asm_server_rcv_msgid = -1;
+		asm_server_cb_msgid = -1;
+	}
+}
+
 void __asm_snd_message(ASM_msg_asm_to_lib_t *asm_snd_msg)
 {
-	if (msgsnd(asm_snd_msgid, (void *)asm_snd_msg, sizeof(asm_snd_msg->data), 0) == -1) {
+	if (msgsnd(asm_server_snd_msgid, (void *)asm_snd_msg, sizeof(asm_snd_msg->data), 0) == -1) {
 		debug_error(" msgsnd failed with error %d\n", errno);
 		exit(EXIT_FAILURE);
 	} else {
-		debug_warning(" success : handle(%d), pid(%d), result_state(%s), result_command(%s), source_request(%s)",
-			asm_snd_msg->data.alloc_handle, asm_snd_msg->instance_id,
+		debug_warning(" success : handle(%d), mag_id(%d), result_state(%s), result_command(%s), source_request(%s)",
+			asm_snd_msg->data.alloc_handle, asm_snd_msg->msg_id,
 			ASM_sound_state_str[asm_snd_msg->data.result_sound_state],
 			ASM_sound_command_str[asm_snd_msg->data.result_sound_command],
 			ASM_sound_request_str[asm_snd_msg->data.source_request_id]);
@@ -1585,7 +1603,7 @@ void __asm_snd_message(ASM_msg_asm_to_lib_t *asm_snd_msg)
 
 void __asm_rcv_message(ASM_msg_lib_to_asm_t *asm_rcv_msg)
 {
-	if (msgrcv(asm_rcv_msgid, (void *)asm_rcv_msg, sizeof(asm_rcv_msg->data), 0, 0) == -1) {
+	if (msgrcv(asm_server_rcv_msgid, (void *)asm_rcv_msg, sizeof(asm_rcv_msg->data), 0, 0) == -1) {
 		debug_error(" msgrcv failed with error %d\n", errno);
 		exit(EXIT_FAILURE);
 	} else {
@@ -2313,6 +2331,7 @@ CONFLICT_AGAIN:
 
 					debug_log(" Conflict policy[0x%x][0x%x]: %s\n", current_playing_sound_event, sound_event, ASM_sound_case_str[sound_case]);
 					switch (sound_case) {
+					case ASM_CASE_1PLAY_2PLAY_MIX:
 					case ASM_CASE_1PAUSE_2PLAY:
 					case ASM_CASE_1STOP_2PLAY:
 					{
@@ -2520,9 +2539,6 @@ int __asm_change_session (ASM_requests_t rcv_request, ASM_sound_events_t rcv_sou
 			case ASM_EVENT_EXCLUSIVE_RESOURCE:
 				if ( rcv_resource & ASM_RESOURCE_VOICECONTROL ) {
 					debug_warning (" ****** ASM_RESOURCE_VOICECONTROL START ******\n");
-					if (vconf_set_int(VCONFKEY_SOUND_VOICE_CONTROL_STATUS, 1)) {
-						debug_error(" vconf_set_int(SOUND_VOICE_CONTROL_KEY, 1) fail\n");
-					}
 					MMSoundMgrSessionSetVoiceControlState(true);
 				}
 				break;
@@ -2749,9 +2765,6 @@ int __asm_change_session (ASM_requests_t rcv_request, ASM_sound_events_t rcv_sou
 				if ( rcv_resource & ASM_RESOURCE_VOICECONTROL ) {
 					debug_warning (" ****** ASM_RESOURCE_VOICECONTROL END ******\n");
 					MMSoundMgrSessionSetVoiceControlState(false);
-					if (vconf_set_int(VCONFKEY_SOUND_VOICE_CONTROL_STATUS, 0)) {
-						debug_error(" vconf_set_int(SOUND_VOICE_CONTROL_KEY, 0) fail\n");
-					}
 				}
 				break;
 			default:
@@ -2923,7 +2936,7 @@ int __asm_process_message (void *rcv_msg, void *ret_msg)
 	pthread_mutex_lock(&g_mutex_asm);
 	debug_log (" ===================================================================== Started!!! (LOCKED) ");
 
-	rcv_instance_id = asm_rcv_msg->instance_id;
+	rcv_instance_id = asm_rcv_msg->msg_id;
 	rcv_sound_handle = asm_rcv_msg->data.handle;
 	rcv_request_id = asm_rcv_msg->data.request_id;
 	rcv_sound_event = asm_rcv_msg->data.sound_event;
@@ -2941,7 +2954,7 @@ int __asm_process_message (void *rcv_msg, void *ret_msg)
 			debug_warning("     sub-event : %s\n", subevent_str[rcv_sound_event]);
 		} else if (rcv_request_id == ASM_REQUEST_SET_SESSION_OPTIONS) {
 			debug_warning("     session-options : %x\n", rcv_sound_event);
-		} else if (rcv_request_id == ASM_REQUEST_GET_SUBSESSION || rcv_request_id == ASM_REQUEST_GET_SUBEVENT || ASM_REQUEST_GET_SESSION_OPTIONS) {
+		} else if (rcv_request_id == ASM_REQUEST_GET_SUBSESSION || rcv_request_id == ASM_REQUEST_GET_SUBEVENT || rcv_request_id == ASM_REQUEST_GET_SESSION_OPTIONS) {
 			/* no log */
 		} else {
 			debug_warning("     sound_event : %s\n", ASM_sound_event_str[rcv_sound_event]);
@@ -2959,7 +2972,7 @@ int __asm_process_message (void *rcv_msg, void *ret_msg)
 
 		__asm_get_empty_handle(rcv_instance_id, &rcv_sound_handle);
 		if (rcv_sound_handle == ASM_HANDLE_INIT_VAL) {
-			ASM_SND_MSG_SET_DEFAULT(asm_snd_msg, rcv_instance_id, ASM_HANDLE_INIT_VAL, ASM_HANDLE_INIT_VAL, rcv_request_id);
+			ASM_SND_MSG_SET_REGISTER(asm_snd_msg, rcv_instance_id, ASM_HANDLE_INIT_VAL, ASM_HANDLE_INIT_VAL, rcv_request_id);
 			if (asm_ret_msg == NULL) {
 				__asm_snd_message(&asm_snd_msg);
 			}
@@ -2974,7 +2987,7 @@ int __asm_process_message (void *rcv_msg, void *ret_msg)
 					debug_error (" failed to __asm_change_session(), error(0x%x)", ret);
 				}
 			}
-			ASM_SND_MSG_SET_DEFAULT(asm_snd_msg, rcv_instance_id, rcv_sound_handle, rcv_sound_handle, rcv_request_id);
+			ASM_SND_MSG_SET_REGISTER(asm_snd_msg, rcv_instance_id, rcv_sound_handle, rcv_sound_handle, rcv_request_id);
 			if (asm_ret_msg == NULL) {
 				__asm_snd_message(&asm_snd_msg);
 			}
@@ -2987,9 +3000,19 @@ int __asm_process_message (void *rcv_msg, void *ret_msg)
 		asm_instance_h = __asm_find_list(rcv_sound_handle);
 
 		bool need_to_resume = false;
+		volume_type_t type;
 		ret = __asm_change_session (rcv_request_id, rcv_sound_event, rcv_sound_state,
 								(asm_instance_h)? asm_instance_h->mm_resource : rcv_resource,
 								true, &need_to_resume);
+
+		if(rcv_sound_event == ASM_EVENT_CALL || rcv_sound_event == ASM_EVENT_VIDEOCALL || rcv_sound_event == ASM_EVENT_VOIP) {
+			mm_sound_volume_get_current_playing_type(&type);
+			if (type == VOLUME_TYPE_CALL) {
+				ret = mm_sound_volume_primary_type_clear();
+				if (ret)
+					debug_error("mm_sound_volume_primary_type_clear failed, ret = 0x%x", ret);
+			}
+		}
 
 		/* enforce calling watch callback when current state of rcv_instance_id is still ASM_STATE_PLAYING */
 		/* need to call the watch callback of Call event(STOP) because Call session is changed in ASM_REQUEST_UNREGISTER */
@@ -3013,7 +3036,7 @@ int __asm_process_message (void *rcv_msg, void *ret_msg)
 
 	case ASM_REQUEST_SETSTATE:
 		__check_dead_process();
-		ASM_SND_MSG_SET_DEFAULT(asm_snd_msg, rcv_instance_id, rcv_sound_handle, rcv_sound_handle, rcv_request_id);
+		ASM_SND_MSG_SET_DEFAULT(asm_snd_msg, rcv_sound_handle, rcv_sound_handle, rcv_request_id);
 		if (rcv_sound_state == ASM_STATE_PLAYING || rcv_sound_state == ASM_STATE_WAITING) {
 			if ( __is_it_playing_now(rcv_instance_id, rcv_sound_handle)) {
 				__asm_change_state_list(rcv_instance_id, rcv_sound_handle, rcv_sound_state, rcv_resource);
@@ -3107,7 +3130,7 @@ int __asm_process_message (void *rcv_msg, void *ret_msg)
 			asm_snd_msg.data.result_sound_state = asm_instance_h->sound_state;
 			asm_snd_msg.data.source_request_id = rcv_request_id;
 		}
-		ASM_SND_MSG_SET_DEFAULT(asm_snd_msg, rcv_instance_id, rcv_sound_handle, rcv_sound_handle, rcv_request_id);
+		ASM_SND_MSG_SET_DEFAULT(asm_snd_msg, rcv_sound_handle, rcv_sound_handle, rcv_request_id);
 		if (asm_ret_msg == NULL) {
 			__asm_snd_message(&asm_snd_msg);
 		}
@@ -3116,7 +3139,7 @@ int __asm_process_message (void *rcv_msg, void *ret_msg)
 
 	case ASM_REQUEST_GETMYSTATE:
 		__check_dead_process();
-		ASM_SND_MSG_SET_DEFAULT(asm_snd_msg, rcv_instance_id, rcv_sound_handle, rcv_sound_handle, rcv_request_id);
+		ASM_SND_MSG_SET_DEFAULT(asm_snd_msg, rcv_sound_handle, rcv_sound_handle, rcv_request_id);
 		asm_snd_msg.data.result_sound_state = __asm_find_process_status(rcv_instance_id);
 		if (asm_ret_msg == NULL) {
 			__asm_snd_message(&asm_snd_msg);
@@ -3146,6 +3169,10 @@ int __asm_process_message (void *rcv_msg, void *ret_msg)
 			case ASM_EVENT_VOIP:
 			{
 				if (rcv_subsession == SUBSESSION_VOICE) {
+					ret = mm_sound_volume_primary_type_set(VOLUME_TYPE_CALL);
+					if (ret)
+						debug_error("failed to mm_sound_volume_primary_type_set, ret = 0x%x", ret);
+
 					/*check camcoder status
 					    special case check :
 					    call  & camcorder EX session can be mixed in Call Ringtone subsession
@@ -3279,7 +3306,7 @@ int __asm_process_message (void *rcv_msg, void *ret_msg)
 			}
 
 			/* Return result msg */
-			ASM_SND_MSG_SET_DEFAULT(asm_snd_msg, rcv_instance_id, rcv_sound_handle, rcv_sound_handle, rcv_request_id);
+			ASM_SND_MSG_SET_DEFAULT(asm_snd_msg, rcv_sound_handle, rcv_sound_handle, rcv_request_id);
 			if (asm_ret_msg == NULL) {
 				__asm_snd_message(&asm_snd_msg);
 			}
@@ -3300,7 +3327,7 @@ int __asm_process_message (void *rcv_msg, void *ret_msg)
 
 			/* Return result msg */
 			asm_snd_msg.data.result_sound_command = subsession;
-			ASM_SND_MSG_SET_DEFAULT(asm_snd_msg, rcv_instance_id, rcv_sound_handle, rcv_sound_handle, rcv_request_id);
+			ASM_SND_MSG_SET_DEFAULT(asm_snd_msg, rcv_sound_handle, rcv_sound_handle, rcv_request_id);
 			if (asm_ret_msg == NULL) {
 				__asm_snd_message(&asm_snd_msg);
 			}
@@ -3335,7 +3362,7 @@ int __asm_process_message (void *rcv_msg, void *ret_msg)
 		debug_warning (" ****** SUB-EVENT [%s] ******\n", ASM_sound_sub_event_str[rcv_subevent]);
 		__asm_change_sub_event_list(rcv_instance_id, rcv_sound_handle, rcv_subevent);
 
-		ASM_SND_MSG_SET_DEFAULT(asm_snd_msg, rcv_instance_id, rcv_sound_handle, rcv_sound_handle, rcv_request_id);
+		ASM_SND_MSG_SET_DEFAULT(asm_snd_msg, rcv_sound_handle, rcv_sound_handle, rcv_request_id);
 
 		if (rcv_subevent == ASM_SUB_EVENT_NONE) {
 			/* NOTE: special case, resume paused list here */
@@ -3368,7 +3395,7 @@ int __asm_process_message (void *rcv_msg, void *ret_msg)
 	}
 
 	case ASM_REQUEST_GET_SUBEVENT:
-		ASM_SND_MSG_SET_DEFAULT(asm_snd_msg, rcv_instance_id, rcv_sound_handle, rcv_sound_handle, rcv_request_id);
+		ASM_SND_MSG_SET_DEFAULT(asm_snd_msg, rcv_sound_handle, rcv_sound_handle, rcv_request_id);
 		/* Return result msg */
 		asm_instance_h = __asm_find_list(rcv_sound_handle);
 		asm_snd_msg.data.result_sound_command = (asm_instance_h ? asm_instance_h->sound_sub_event : ASM_SUB_EVENT_NONE);
@@ -3402,7 +3429,7 @@ int __asm_process_message (void *rcv_msg, void *ret_msg)
 			asm_snd_msg.data.error_code = ERR_ASM_SERVER_HANDLE_IS_INVALID;
 		}
 
-		ASM_SND_MSG_SET_DEFAULT(asm_snd_msg, rcv_instance_id, rcv_sound_handle, rcv_sound_handle, rcv_request_id);
+		ASM_SND_MSG_SET_DEFAULT(asm_snd_msg, rcv_sound_handle, rcv_sound_handle, rcv_request_id);
 		if (asm_ret_msg == NULL) {
 			__asm_snd_message(&asm_snd_msg);
 		}
@@ -3410,7 +3437,7 @@ int __asm_process_message (void *rcv_msg, void *ret_msg)
 	}
 
 	case ASM_REQUEST_GET_SESSION_OPTIONS:
-		ASM_SND_MSG_SET_DEFAULT(asm_snd_msg, rcv_instance_id, rcv_sound_handle, rcv_sound_handle, rcv_request_id);
+		ASM_SND_MSG_SET_DEFAULT(asm_snd_msg, rcv_sound_handle, rcv_sound_handle, rcv_request_id);
 		/* Return result msg */
 		asm_instance_h = __asm_find_list(rcv_sound_handle);
 		asm_snd_msg.data.option_flags = (asm_instance_h ? asm_instance_h->option_flags : 0);
@@ -3472,12 +3499,12 @@ int __asm_process_message (void *rcv_msg, void *ret_msg)
 
 		__asm_get_empty_handle(rcv_instance_id, &rcv_sound_handle);
 		if (rcv_sound_handle == ASM_HANDLE_INIT_VAL) {
-			ASM_SND_MSG_SET_DEFAULT(asm_snd_msg, rcv_instance_id, ASM_HANDLE_INIT_VAL, ASM_HANDLE_INIT_VAL, rcv_request_id);
+			ASM_SND_MSG_SET_REGISTER(asm_snd_msg, rcv_instance_id, ASM_HANDLE_INIT_VAL, ASM_HANDLE_INIT_VAL, rcv_request_id);
 			if (asm_ret_msg == NULL) {
 				__asm_snd_message(&asm_snd_msg);
 			}
 		} else {
-			ASM_SND_MSG_SET_DEFAULT(asm_snd_msg, rcv_instance_id, rcv_sound_handle, rcv_sound_handle, rcv_request_id);
+			ASM_SND_MSG_SET_REGISTER(asm_snd_msg, rcv_instance_id, rcv_sound_handle, rcv_sound_handle, rcv_request_id);
 			asm_snd_msg.data.result_sound_command = ASM_COMMAND_PLAY;
 			asm_snd_msg.data.result_sound_state = rcv_sound_state;
 			if (asm_ret_msg == NULL) {
@@ -3502,7 +3529,7 @@ int __asm_process_message (void *rcv_msg, void *ret_msg)
 		} else {
 			__reset_resume_check(found_pid, rcv_sound_handle);
 		}
-		ASM_SND_MSG_SET_DEFAULT(asm_snd_msg, rcv_instance_id, rcv_sound_handle, rcv_sound_handle, rcv_request_id);
+		ASM_SND_MSG_SET_DEFAULT(asm_snd_msg, rcv_sound_handle, rcv_sound_handle, rcv_request_id);
 		asm_snd_msg.data.result_sound_command = ASM_COMMAND_PLAY;
 		asm_snd_msg.data.result_sound_state = rcv_sound_state;
 		if (asm_ret_msg == NULL) {
@@ -3534,21 +3561,6 @@ void __asm_main_run (void* param)
 	/* Init Msg Queue */
 	__asm_create_message_queue();
 
-	int temp_msgctl_id1 = msgctl(asm_snd_msgid, IPC_RMID, 0);
-	int temp_msgctl_id2 = msgctl(asm_rcv_msgid, IPC_RMID, 0);
-	int temp_msgctl_id3 = msgctl(asm_cb_msgid, IPC_RMID, 0);
-
-	if (temp_msgctl_id1 == -1 || temp_msgctl_id2 == -1 || temp_msgctl_id3 == -1) {
-		debug_error(" msgctl failed with error(%d,%s) \n", errno, strerror(errno));
-		exit(EXIT_FAILURE);
-	}
-	//-------------------------------------------------------------------
-	/*
-		This is unnessasry finaly, but nessasary during implement.
-	*/
-	/* FIXME: Do we need to do this again ? */
-	__asm_create_message_queue();
-
 	/*
 	 * Init Vconf
 	 */
@@ -3557,11 +3569,6 @@ void __asm_main_run (void* param)
 		if (vconf_set_int(SOUND_STATUS_KEY, 0)) {
 			debug_error(" vconf_set_int fail\n");
 		}
-	}
-
-	/* Set READY flag */
-	if (vconf_set_int(ASM_READY_KEY, 1)) {
-		debug_error(" vconf_set_int fail\n");
 	}
 
 	/* Msg Loop */
@@ -3599,6 +3606,8 @@ int MMSoundMgrASMInit(void)
 int MMSoundMgrASMFini(void)
 {
 	debug_fenter();
+
+	__asm_destroy_message_queue();
 
 	debug_fleave();
 	return MM_ERROR_NONE;

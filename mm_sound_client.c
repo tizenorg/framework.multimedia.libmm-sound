@@ -52,6 +52,8 @@
 #include <sys/poll.h>
 #endif
 
+#define CLIENT_HANDLE_MAX 256
+
 #define MEMTYPE_SUPPORT_MAX (1024 * 1024) /* 1MB */
 #define MEMTYPE_TRANS_PER_MAX (128 * 1024) /* 128K */
 
@@ -60,9 +62,8 @@ int g_msg_scrcv;	/* global msg queue id sound client rcv */
 int g_msg_sccb;		/* global msg queue id sound client callback */
 
 /* global variables for device list */
-static GList *g_device_list = NULL;
-static mm_sound_device_list_t g_device_list_t;
-static pthread_mutex_t g_device_list_mutex = PTHREAD_MUTEX_INITIALIZER;
+static __thread GList *g_device_list = NULL;
+static __thread mm_sound_device_list_t g_device_list_t;
 
 /* callback */
 struct __callback_param
@@ -758,11 +759,12 @@ int MMSoundClientStopSound(int handle)
 
 	instance = getpid();
 
-	if (handle < 0)
+	if (handle < 0 || handle > CLIENT_HANDLE_MAX) 
 	{
 		ret = MM_ERROR_INVALID_ARGUMENT;
 		return ret;
 	}
+
 
 	ret = __mm_sound_client_get_msg_queue();
 	if (ret  != MM_ERROR_NONE) {
@@ -834,9 +836,9 @@ static int __mm_sound_device_check_flags_to_append (int device_flags, mm_sound_d
 	}
 
 	if (need_to_check_for_io_direction) {
-		if ((device_h->io_direction == DEVICE_IO_DIRECTION_IN) && (device_flags & DEVICE_IO_DIRECTION_IN_FLAG)) {
+		if ((device_h->io_direction == DEVICE_IO_DIRECTION_IN || device_h->io_direction == DEVICE_IO_DIRECTION_BOTH) && (device_flags & DEVICE_IO_DIRECTION_IN_FLAG)) {
 			need_to_append = true;
-		} else if ((device_h->io_direction == DEVICE_IO_DIRECTION_OUT) && (device_flags & DEVICE_IO_DIRECTION_OUT_FLAG)) {
+		} else if ((device_h->io_direction == DEVICE_IO_DIRECTION_OUT || device_h->io_direction == DEVICE_IO_DIRECTION_BOTH) && (device_flags & DEVICE_IO_DIRECTION_OUT_FLAG)) {
 			need_to_append = true;
 		} else if ((device_h->io_direction == DEVICE_IO_DIRECTION_BOTH) && (device_flags & DEVICE_IO_DIRECTION_BOTH_FLAG)) {
 			need_to_append = true;
@@ -891,14 +893,12 @@ int __mm_sound_client_device_list_clear ()
 {
 	int ret = MM_ERROR_NONE;
 
-	MMSOUND_ENTER_CRITICAL_SECTION_WITH_RETURN(&g_device_list_mutex, MM_ERROR_SOUND_INTERNAL);
 
 	if (g_device_list) {
 		g_list_free_full(g_device_list, g_free);
 		g_device_list = NULL;
 	}
 
-	MMSOUND_LEAVE_CRITICAL_SECTION(&g_device_list_mutex);
 
 	return ret;
 }
@@ -911,12 +911,11 @@ int __mm_sound_client_device_list_append_item (mm_sound_device_t *device_h)
 		return MM_ERROR_SOUND_INTERNAL;
 	memcpy(device_node, device_h, sizeof(mm_sound_device_t));
 
-	MMSOUND_ENTER_CRITICAL_SECTION_WITH_RETURN(&g_device_list_mutex, MM_ERROR_SOUND_INTERNAL);
 
 	g_device_list = g_list_append(g_device_list, device_node);
-	debug_log("[Client] g_device_list[0x%x], new device_node[0x%x] is appended, type[%d], id[%d]\n", g_device_list, device_node, device_node->type, device_node->id);
+	debug_log("[Client] g_device_list[0x%x], new device_node[0x%x] is appended, type[%d], direction[0x%x], id[%d]\n",
+			g_device_list, device_node, device_node->type, device_node->io_direction, device_node->id);
 
-	MMSOUND_LEAVE_CRITICAL_SECTION(&g_device_list_mutex);
 
 	return ret;
 }
@@ -976,7 +975,6 @@ int _mm_sound_client_get_current_connected_device_list(int device_flags, mm_soun
 	case MM_SOUND_MSG_RES_GET_CONNECTED_DEVICE_LIST:
 	{
 		int i = 0;
-		int ret = MM_ERROR_NONE;
 		int total_device_num = msgrcv.sound_msg.total_device_num;
 		bool is_good_to_append = false;
 		mm_sound_device_t* device_h = &msgrcv.sound_msg.device_handle;
@@ -1014,9 +1012,16 @@ int _mm_sound_client_get_current_connected_device_list(int device_flags, mm_soun
 			}
 		}
 		g_device_list_t.list = g_device_list;
-		*device_list = &g_device_list_t;
-		debug_msg("[Client] Success to get connected device list, g_device_list_t[0x%x]->list[0x%x], device_list[0x%x]\n", &g_device_list_t, g_device_list_t.list, *device_list);
-		_mm_sound_client_device_list_dump((*device_list)->list);
+		if (g_device_list) {
+			*device_list = &g_device_list_t;
+			debug_msg("[Client] Success to get connected device list, g_device_list_t[0x%x]->list[0x%x], device_list[0x%x]\n", &g_device_list_t, g_device_list_t.list, *device_list);
+			_mm_sound_client_device_list_dump((*device_list)->list);
+		} else {
+			debug_msg("[Client] device_list null\n");
+			*device_list = NULL;
+			ret = MM_ERROR_SOUND_NO_DATA;
+		}
+
 	}
 		break;
 	case MM_SOUND_MSG_RES_ERROR:

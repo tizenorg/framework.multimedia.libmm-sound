@@ -34,6 +34,7 @@ int mm_sound_pcm_capture_open_async(MMSoundPcmHandle_t *handle, const unsigned i
 									mm_sound_pcm_stream_cb_t callback, void* userdata);
 int mm_sound_pcm_capture_start_async(MMSoundPcmHandle_t handle);
 int mm_sound_pcm_capture_stop_async(MMSoundPcmHandle_t handle);
+int mm_sound_pcm_capture_flush_async(MMSoundPcmHandle_t handle);
 int mm_sound_pcm_capture_peek(MMSoundPcmHandle_t handle, const void **buffer, const unsigned int *length);
 int mm_sound_pcm_capture_drop(MMSoundPcmHandle_t handle);
 int mm_sound_pcm_capture_close_async(MMSoundPcmHandle_t handle);
@@ -44,6 +45,8 @@ int mm_sound_pcm_play_open_async (MMSoundPcmHandle_t *handle, const unsigned int
 							mm_sound_pcm_stream_cb_t callback, void* userdata);
 int mm_sound_pcm_play_start_async(MMSoundPcmHandle_t handle);
 int mm_sound_pcm_play_stop_async(MMSoundPcmHandle_t handle);
+int mm_sound_pcm_play_drain_async(MMSoundPcmHandle_t handle);
+int mm_sound_pcm_play_flush_async(MMSoundPcmHandle_t handle);
 int mm_sound_pcm_play_write_async(MMSoundPcmHandle_t handle, void* ptr, unsigned int length_byte);
 int mm_sound_pcm_play_close_async(MMSoundPcmHandle_t handle);
 

@@ -26,6 +26,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <errno.h>
+#include <glib.h>
 
 #include <vconf.h>
 #include <vconf-keys.h>
@@ -53,9 +54,8 @@ static mm_sound_route g_valid_route[] = {
 #define MM_SOUND_DEFAULT_VOLUME_CALL			4
 #define MM_SOUND_DEFAULT_VOLUME_VOIP			4
 #define MM_SOUND_DEFAULT_VOLUME_VOICE			7
-#define MM_SOUND_DEFAULT_VOLUME_ANDROID			0
 
-static char *g_volume_vconf[VOLUME_TYPE_MAX] = {
+static char *g_volume_vconf[VOLUME_TYPE_VCONF_MAX] = {
 	VCONF_KEY_VOLUME_TYPE_SYSTEM,		/* VOLUME_TYPE_SYSTEM */
 	VCONF_KEY_VOLUME_TYPE_NOTIFICATION,	/* VOLUME_TYPE_NOTIFICATION */
 	VCONF_KEY_VOLUME_TYPE_ALARM,		/* VOLUME_TYPE_ALARM */
@@ -64,9 +64,8 @@ static char *g_volume_vconf[VOLUME_TYPE_MAX] = {
 	VCONF_KEY_VOLUME_TYPE_CALL,			/* VOLUME_TYPE_CALL */
 	VCONF_KEY_VOLUME_TYPE_VOIP,			/* VOLUME_TYPE_VOIP */
 	VCONF_KEY_VOLUME_TYPE_VOICE,		/* VOLUME_TYPE_VOICE */
-	VCONF_KEY_VOLUME_TYPE_ANDROID		/* VOLUME_TYPE_FIXED */
 };
-static char *g_volume_str[VOLUME_TYPE_MAX] = {
+static char *g_volume_str[VOLUME_TYPE_VCONF_MAX] = {
 	"SYSTEM",
 	"NOTIFICATION",
 	"ALARM",
@@ -75,7 +74,6 @@ static char *g_volume_str[VOLUME_TYPE_MAX] = {
 	"CALL",
 	"VOIP",
 	"VOICE",
-	"FIXED",
 };
 
 EXPORT_API
@@ -154,27 +152,6 @@ int _mm_sound_volume_remove_callback(volume_type_t type, void *func)
 	return MM_ERROR_NONE;
 }
 
-EXPORT_API
-int _mm_sound_muteall_add_callback(void *func)
-{
-	if (vconf_notify_key_changed(VCONF_KEY_MUTE_ALL, func, NULL)) {
-		debug_error ("vconf_notify_key_changed failed..\n");
-		return MM_ERROR_SOUND_INTERNAL;
-	}
-
-	return MM_ERROR_NONE;
-}
-
-EXPORT_API
-int _mm_sound_muteall_remove_callback(void *func)
-{
-	if (vconf_ignore_key_changed(VCONF_KEY_MUTE_ALL, func)) {
-		debug_error ("vconf_ignore_key_changed failed..\n");
-		return MM_ERROR_SOUND_INTERNAL;
-	}
-
-	return MM_ERROR_NONE;
-}
 
 EXPORT_API
 int _mm_sound_volume_get_value_by_type(volume_type_t type, unsigned int *value)
@@ -213,93 +190,6 @@ int _mm_sound_volume_set_value_by_type(volume_type_t type, unsigned int value)
 			return MM_ERROR_SOUND_INTERNAL;
 	}
 	return ret;
-}
-
-EXPORT_API
-int _mm_sound_volume_set_balance(float balance)
-{
-	/* Set balance value to VCONF */
-	if (vconf_set_dbl(VCONF_KEY_VOLUME_BALANCE, balance)) {
-		debug_error ("vconf_set_dbl(%s) failed..\n", VCONF_KEY_VOLUME_BALANCE);
-		return MM_ERROR_SOUND_INTERNAL;
-	}
-
-	return MM_ERROR_NONE;
-}
-
-EXPORT_API
-int _mm_sound_volume_get_balance(float *balance)
-{
-	double balance_value = 0;
-
-	/* Get balance value from VCONF */
-	if (vconf_get_dbl(VCONF_KEY_VOLUME_BALANCE, &balance_value)) {
-		debug_error ("vconf_get_int(%s) failed..\n", VCONF_KEY_VOLUME_BALANCE);
-		return MM_ERROR_SOUND_INTERNAL;
-	}
-
-	*balance = balance_value;
-	debug_log("balance get value [%s]=[%f]", VCONF_KEY_VOLUME_BALANCE, *balance);
-
-	return MM_ERROR_NONE;
-}
-
-EXPORT_API
-int _mm_sound_set_muteall(int muteall)
-{
-	/* Set muteall value to VCONF */
-	if (vconf_set_int(VCONF_KEY_MUTE_ALL, muteall)) {
-		debug_error ("vconf_set_int(%s) failed..\n", VCONF_KEY_MUTE_ALL);
-		return MM_ERROR_SOUND_INTERNAL;
-	}
-
-	return MM_ERROR_NONE;
-}
-
-EXPORT_API
-int _mm_sound_get_muteall(int *muteall)
-{
-	int muteall_value = 0;
-
-	/* Get muteall value from VCONF */
-	if (vconf_get_int(VCONF_KEY_MUTE_ALL, &muteall_value)) {
-		debug_error ("vconf_get_int(%s) failed..\n", VCONF_KEY_MUTE_ALL);
-		return MM_ERROR_SOUND_INTERNAL;
-	}
-
-	*muteall = muteall_value;
-	debug_log("muteall get value [%s]=[%d]", VCONF_KEY_MUTE_ALL, *muteall);
-
-	return MM_ERROR_NONE;
-}
-
-EXPORT_API
-int __mm_sound_set_stereo_to_mono(int ismono)
-{
-	/* Set ismono value to VCONF */
-	if (vconf_set_int(VCONF_KEY_MONO_AUDIO, ismono)) {
-		debug_error ("vconf_set_int(%s) failed..\n", VCONF_KEY_MONO_AUDIO);
-		return MM_ERROR_SOUND_INTERNAL;
-	}
-
-	return MM_ERROR_NONE;
-}
-
-EXPORT_API
-int __mm_sound_get_stereo_to_mono(int *ismono)
-{
-	int ismono_value = 0;
-
-	/* Get ismono value from VCONF */
-	if (vconf_get_int(VCONF_KEY_MONO_AUDIO, &ismono_value)) {
-		debug_error ("vconf_get_int(%s) failed..\n", VCONF_KEY_MONO_AUDIO);
-		return MM_ERROR_SOUND_INTERNAL;
-	}
-
-	*ismono = ismono_value;
-	debug_log("ismono get value [%s]=[%d]", VCONF_KEY_MONO_AUDIO, *ismono);
-
-	return MM_ERROR_NONE;
 }
 
 EXPORT_API
@@ -365,4 +255,147 @@ bool _mm_sound_is_mute_policy (void)
 	debug_log ("[%s] setting_sound_status=%d\n", VCONFKEY_SETAPPL_SOUND_STATUS_BOOL, setting_sound_status);
 
 	return !setting_sound_status;
+}
+#ifdef TIZEN_TV
+EXPORT_API
+int _mm_sound_volume_get_master(unsigned int *value)
+{
+	int ret = MM_ERROR_NONE;
+	int vconf_value = 0;
+
+	/* Get volume value from VCONF */
+	if (vconf_get_int(VCONF_KEY_VOLUME_MASTER, &vconf_value)) {
+		debug_error ("vconf_get_int(%s) failed..\n", VCONF_KEY_VOLUME_MASTER);
+		return MM_ERROR_SOUND_INTERNAL;
+	}
+
+	*value = vconf_value;
+	if (ret == MM_ERROR_NONE)
+		debug_log("volume_get_value %s %d", VCONF_KEY_VOLUME_MASTER, *value);
+
+	return ret;
+}
+
+EXPORT_API
+int _mm_sound_volume_set_master(unsigned int value)
+{
+	int ret = MM_ERROR_NONE;
+	int vconf_value = 0;
+
+	vconf_value = value;
+	debug_log("volume_set_value %s %d", VCONF_KEY_VOLUME_MASTER, value);
+
+	if ((ret = vconf_set_int(VCONF_KEY_VOLUME_MASTER, vconf_value)) != 0) {
+		debug_error ("vconf_set_int(%s) failed..ret[%d]\n", VCONF_KEY_VOLUME_MASTER, ret);
+		if (ret == -EPERM || ret == -EACCES)
+			return MM_ERROR_SOUND_PERMISSION_DENIED;
+		else
+			return MM_ERROR_SOUND_INTERNAL;
+	}
+	return ret;
+}
+
+EXPORT_API
+int _mm_sound_mute_get_master(bool *value)
+{
+	int ret = MM_ERROR_NONE;
+	int vconf_value = 0;
+
+	/* Get volume value from VCONF */
+	if (vconf_get_int(VCONF_KEY_MUTE_MASTER, &vconf_value)) {
+		debug_error ("vconf_get_int(%s) failed..\n", VCONF_KEY_MUTE_MASTER);
+		return MM_ERROR_SOUND_INTERNAL;
+	}
+
+	*value = vconf_value;
+	if (ret == MM_ERROR_NONE)
+		debug_log("volume_get_value %s %d", VCONF_KEY_MUTE_MASTER, *value);
+
+	return ret;
+}
+
+EXPORT_API
+int _mm_sound_mute_set_master(bool value)
+{
+	int ret = MM_ERROR_NONE;
+	bool vconf_value = 0;
+
+	vconf_value = value;
+	debug_log("volume_set_value %s %d", VCONF_KEY_MUTE_MASTER, value);
+
+	if ((ret = vconf_set_int(VCONF_KEY_MUTE_MASTER, vconf_value)) != 0) {
+		debug_error ("vconf_set_int(%s) failed..ret[%d]\n", VCONF_KEY_MUTE_MASTER, ret);
+		if (ret == -EPERM || ret == -EACCES)
+			return MM_ERROR_SOUND_PERMISSION_DENIED;
+		else
+			return MM_ERROR_SOUND_INTERNAL;
+	}
+	return ret;
+}
+
+EXPORT_API
+int _mm_sound_get_output_device(mm_sound_tv_output_device_t *device)
+{
+	int ret = MM_ERROR_NONE;
+	int vconf_value = 0;
+
+	/* Get volume value from VCONF */
+	if (vconf_get_int(VCONF_KEY_OUTPUT_DEVICE, &vconf_value)) {
+		debug_error ("vconf_get_int(%s) failed..\n", VCONF_KEY_OUTPUT_DEVICE);
+		return MM_ERROR_SOUND_INTERNAL;
+	}
+
+	*device = vconf_value;
+	if (ret == MM_ERROR_NONE)
+		debug_log("volume_get_value %s %d", VCONF_KEY_OUTPUT_DEVICE, *device);
+
+	return ret;
+}
+
+EXPORT_API
+int _mm_sound_set_output_device(mm_sound_tv_output_device_t device)
+{
+	int ret = MM_ERROR_NONE;
+	int vconf_value = 0;
+
+	vconf_value = device;
+	debug_log("volume_set_value %s %d", VCONF_KEY_OUTPUT_DEVICE, device);
+
+	if ((ret = vconf_set_int(VCONF_KEY_OUTPUT_DEVICE, vconf_value)) != 0) {
+		debug_error ("vconf_set_int(%s) failed..ret[%d]\n", VCONF_KEY_OUTPUT_DEVICE, ret);
+		if (ret == -EPERM || ret == -EACCES)
+			return MM_ERROR_SOUND_PERMISSION_DENIED;
+		else
+			return MM_ERROR_SOUND_INTERNAL;
+	}
+	return ret;
+}
+#endif /* end of TIZEN_TV */
+EXPORT_API
+bool mm_sound_util_is_process_alive(pid_t pid)
+{
+	gchar *tmp = NULL;
+	int ret = -1;
+
+	if (pid > 999999 || pid < 2)
+		return false;
+
+	if ((tmp = g_strdup_printf("/proc/%d", pid))) {
+		ret = access(tmp, F_OK);
+		g_free(tmp);
+	}
+
+	if (ret == -1) {
+		if (errno == ENOENT) {
+			debug_warning ("/proc/%d not exist", pid);
+			return false;
+		} else {
+			debug_error ("/proc/%d access errno[%d]", pid, errno);
+
+			/* FIXME: error occured but file exists */
+			return true;
+		}
+	}
+
+	return true;
 }

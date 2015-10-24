@@ -2,7 +2,7 @@ pcfiles = mm-sound.pc mm-keysound.pc mm-bootsound.pc
 
 all-local: $(pcfiles)
 
-%.pc: %.pc
+.pc: .pc
 	cp $< $@
 
 pkgconfigdir= $(libdir)/pkgconfig
