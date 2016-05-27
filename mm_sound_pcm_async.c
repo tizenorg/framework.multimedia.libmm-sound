@@ -62,8 +62,8 @@
 #define PCM_UNLOCK_INTERNAL(LOCK) do { pthread_mutex_unlock(LOCK); } while (0)
 #define PCM_LOCK_DESTROY_INTERNAL(LOCK) do { pthread_mutex_destroy(LOCK); } while (0)
 
-#define MAINLOOP_LOCK(LOCK) do { pa_threaded_mainloop_lock(LOCK); debug_msg("MAINLOOP locked"); } while (0)
-#define MAINLOOP_UNLOCK(LOCK) do { pa_threaded_mainloop_unlock(LOCK); debug_msg("MAINLOOP unlocked"); } while (0)
+#define MAINLOOP_LOCK(LOCK) do { pa_threaded_mainloop_lock(LOCK); /*debug_msg("MAINLOOP locked");*/ } while (0)
+#define MAINLOOP_UNLOCK(LOCK) do { pa_threaded_mainloop_unlock(LOCK); /*debug_msg("MAINLOOP unlocked");*/ } while (0)
 
 typedef struct {
 	int			asm_handle;
@@ -613,7 +613,13 @@ int mm_sound_pcm_capture_peek(MMSoundPcmHandle_t handle, const void **buffer, co
 		goto EXIT;
 	}
 #endif
+	if (!pa_threaded_mainloop_in_thread(pcmHandle->mainloop)) {
+		MAINLOOP_LOCK(pcmHandle->mainloop);
+	}
 	ret = pa_stream_peek (pcmHandle->s, buffer, (unsigned int *)length);
+	if (!pa_threaded_mainloop_in_thread(pcmHandle->mainloop)) {
+		MAINLOOP_UNLOCK(pcmHandle->mainloop);
+	}
 
 EXIT:
 //	PCM_UNLOCK_INTERNAL(&pcmHandle->pcm_mutex_internal);
@@ -643,8 +649,14 @@ int mm_sound_pcm_capture_drop(MMSoundPcmHandle_t handle)
 		goto EXIT;
 	}
 
+	if (!pa_threaded_mainloop_in_thread(pcmHandle->mainloop)) {
+		MAINLOOP_LOCK(pcmHandle->mainloop);
+	}
 	if (pa_stream_drop(pcmHandle->s) != 0)
 		ret = MM_ERROR_SOUND_INTERNAL;
+	if (!pa_threaded_mainloop_in_thread(pcmHandle->mainloop)) {
+		MAINLOOP_UNLOCK(pcmHandle->mainloop);
+	}
 EXIT:
 //	PCM_UNLOCK_INTERNAL(&pcmHandle->pcm_mutex_internal);
 NULL_HANDLE:
@@ -959,11 +971,17 @@ int mm_sound_pcm_play_write_async(MMSoundPcmHandle_t handle, void* ptr, unsigned
 	}
 #endif
 	/* Write */
-
+	if (!pa_threaded_mainloop_in_thread(pcmHandle->mainloop)) {
+		MAINLOOP_LOCK(pcmHandle->mainloop);
+	}
 	ret = pa_stream_write(pcmHandle->s, ptr, length_byte, NULL, 0LL, PA_SEEK_RELATIVE);
 	if (ret == 0) {
 		ret = length_byte;
 	}
+	if (!pa_threaded_mainloop_in_thread(pcmHandle->mainloop)) {
+		MAINLOOP_UNLOCK(pcmHandle->mainloop);
+	}
+
 EXIT:
 //	PCM_UNLOCK_INTERNAL(&pcmHandle->pcm_mutex_internal);
 NULL_HANDLE:
@@ -1111,6 +1129,17 @@ static void __mm_sound_pa_success_cb(pa_context *c, int success, void *userdata)
 	}
     handle->operation_success = success;
 	pa_threaded_mainloop_signal(handle->mainloop, 0);
+}
+
+static void __mm_sound_pa_success_nosignal_cb(pa_context *c, int success, void *userdata)
+{
+	mm_sound_pcm_async_t* handle = (mm_sound_pcm_async_t*) userdata;
+
+	if (!success) {
+		debug_error("pa control failed: %s\n", pa_strerror(pa_context_errno(c)));
+	} else {
+		debug_msg("pa control success\n");
+	}
 }
 
 static void _context_state_cb(pa_context *c, void *userdata)
@@ -1396,104 +1425,123 @@ static int _mm_sound_pa_close(mm_sound_pcm_async_t* handle)
 
 static int _mm_sound_pa_cork(mm_sound_pcm_async_t* handle, int cork)
 {
-    pa_operation *o = NULL;
+	pa_operation *o = NULL;
 
-    MAINLOOP_LOCK(handle->mainloop);
+	if (pa_threaded_mainloop_in_thread(handle->mainloop)) {
+		o = pa_stream_cork(handle->s, cork, (pa_stream_success_cb_t)__mm_sound_pa_success_nosignal_cb, handle);
+		if (o)
+			pa_operation_unref(o);
+	} else {
+		MAINLOOP_LOCK(handle->mainloop);
 
-    o = pa_stream_cork(handle->s, cork, (pa_stream_success_cb_t)__mm_sound_pa_success_cb, handle);
-    if (!(o)) {
-        goto unlock_and_fail;
+		o = pa_stream_cork(handle->s, cork, (pa_stream_success_cb_t)__mm_sound_pa_success_cb, handle);
+		if (!(o)) {
+			goto unlock_and_fail;
+		}
+		handle->operation_success = 0;
+		while (pa_operation_get_state(o) == PA_OPERATION_RUNNING) {
+			pa_threaded_mainloop_wait(handle->mainloop);
+		}
+		if (!(handle->operation_success)) {
+			goto unlock_and_fail;
+		}
+		pa_operation_unref(o);
+
+		MAINLOOP_UNLOCK(handle->mainloop);
 	}
-    handle->operation_success = 0;
-    while (pa_operation_get_state(o) == PA_OPERATION_RUNNING) {
-        pa_threaded_mainloop_wait(handle->mainloop);
-    }
-    if (!(handle->operation_success)) {
-        goto unlock_and_fail;
-    }
-    pa_operation_unref(o);
 
-    MAINLOOP_UNLOCK(handle->mainloop);
-
-    return 0;
+	return 0;
 
 unlock_and_fail:
 	debug_error ("error!!!!");
-    if (o) {
-        pa_operation_cancel(o);
-        pa_operation_unref(o);
-    }
+	if (o) {
+		pa_operation_cancel(o);
+		pa_operation_unref(o);
+	}
 
-    MAINLOOP_UNLOCK(handle->mainloop);
-    return -1;
+	MAINLOOP_UNLOCK(handle->mainloop);
+	return -1;
 }
 
 static int _mm_sound_pa_drain(mm_sound_pcm_async_t* handle)
 {
-    pa_operation *o = NULL;
+	pa_operation *o = NULL;
 
-    MAINLOOP_LOCK(handle->mainloop);
+	if (pa_threaded_mainloop_in_thread(handle->mainloop)) {
+		o = pa_stream_drain(handle->s, (pa_stream_success_cb_t)__mm_sound_pa_success_nosignal_cb, handle);
+		if (o)
+			pa_operation_unref(o);
+	} else {
+		MAINLOOP_LOCK(handle->mainloop);
 
-    o = pa_stream_drain(handle->s, (pa_stream_success_cb_t)__mm_sound_pa_success_cb, handle);
-    if (!(o)) {
-        goto unlock_and_fail;
-    }
-    handle->operation_success = 0;
-    while (pa_operation_get_state(o) == PA_OPERATION_RUNNING) {
-        pa_threaded_mainloop_wait(handle->mainloop);
-    }
-    if (!(handle->operation_success)) {
-        goto unlock_and_fail;
-    }
-    pa_operation_unref(o);
+		o = pa_stream_drain(handle->s, (pa_stream_success_cb_t)__mm_sound_pa_success_cb, handle);
+		if (!(o)) {
+		    goto unlock_and_fail;
+		}
+		handle->operation_success = 0;
 
-    MAINLOOP_UNLOCK(handle->mainloop);
+		while (pa_operation_get_state(o) == PA_OPERATION_RUNNING) {
+			pa_threaded_mainloop_wait(handle->mainloop);
+		}
+		if (!(handle->operation_success)) {
+			goto unlock_and_fail;
+		}
+		pa_operation_unref(o);
 
-    return 0;
+		MAINLOOP_UNLOCK(handle->mainloop);
+	}
+
+	return 0;
 
 unlock_and_fail:
 	debug_error ("error!!!!");
-    if (o) {
-        pa_operation_cancel(o);
-        pa_operation_unref(o);
-    }
+	if (o) {
+		pa_operation_cancel(o);
+		pa_operation_unref(o);
+	}
 
-    MAINLOOP_UNLOCK(handle->mainloop);
-    return -1;
+	MAINLOOP_UNLOCK(handle->mainloop);
+	return -1;
 }
 
 static int _mm_sound_pa_flush(mm_sound_pcm_async_t* handle)
 {
-    pa_operation *o = NULL;
+	pa_operation *o = NULL;
 
-    MAINLOOP_LOCK(handle->mainloop);
+	if (pa_threaded_mainloop_in_thread(handle->mainloop)) {
+		o = pa_stream_flush(handle->s, (pa_stream_success_cb_t)__mm_sound_pa_success_nosignal_cb, handle);
+		if (o)
+			pa_operation_unref(o);
+	} else {
+		MAINLOOP_LOCK(handle->mainloop);
 
-    o = pa_stream_flush(handle->s, (pa_stream_success_cb_t)__mm_sound_pa_success_cb, handle);
-    if (!(o)) {
-        goto unlock_and_fail;
-    }
-    handle->operation_success = 0;
-    while (pa_operation_get_state(o) == PA_OPERATION_RUNNING) {
-        pa_threaded_mainloop_wait(handle->mainloop);
-    }
-    if (!(handle->operation_success)) {
-        goto unlock_and_fail;
-    }
-    pa_operation_unref(o);
+		o = pa_stream_flush(handle->s, (pa_stream_success_cb_t)__mm_sound_pa_success_cb, handle);
+		if (!(o)) {
+			goto unlock_and_fail;
+		}
+		handle->operation_success = 0;
+		while (pa_operation_get_state(o) == PA_OPERATION_RUNNING) {
+			pa_threaded_mainloop_wait(handle->mainloop);
+		}
+		if (!(handle->operation_success)) {
+			goto unlock_and_fail;
+		}
+		pa_operation_unref(o);
 
-    MAINLOOP_UNLOCK(handle->mainloop);
+		MAINLOOP_UNLOCK(handle->mainloop);
+	}
 
-    return 0;
+	return 0;
 
 unlock_and_fail:
 	debug_error ("error!!!!");
-    if (o) {
-        pa_operation_cancel(o);
-        pa_operation_unref(o);
-    }
+	if (o) {
+		pa_operation_cancel(o);
+		pa_operation_unref(o);
+	}
 
-    MAINLOOP_UNLOCK(handle->mainloop);
-    return -1;
+	MAINLOOP_UNLOCK(handle->mainloop);
+	return -1;
 }
 
 static int _mm_sound_pa_get_latency(mm_sound_pcm_async_t* handle, int* latency)
