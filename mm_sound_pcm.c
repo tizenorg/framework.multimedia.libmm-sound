@@ -356,6 +356,9 @@ int mm_sound_pcm_capture_open(MMSoundPcmHandle_t *handle, const unsigned int rat
 	int errorcode = 0;
 	int ret_mutex = 0;
 	int ret = MM_ERROR_NONE;
+	int capture_h_count = 0;
+	int cur_session = MM_SESSION_TYPE_MEDIA;
+	int session_options = 0;
 
 	int volume_config = 0;
 	pa_sample_spec ss;
@@ -454,9 +457,19 @@ int mm_sound_pcm_capture_open(MMSoundPcmHandle_t *handle, const unsigned int rat
 	if(pcmHandle->handle<0) {
 		result = pcmHandle->handle;
 		debug_error("Device Open Error 0x%x\n", result);
+		if (pcmHandle->asm_handle)
+			ASM_unregister_sound(pcmHandle->asm_handle, pcmHandle->asm_event, &errorcode);
 		PCM_LOCK_DESTROY_INTERNAL(&pcmHandle->pcm_mutex_internal);
 		free(pcmHandle);
 		PCM_CAPTURE_H_COUNT_DEC();
+		PCM_CAPTURE_H_COUNT_GET(capture_h_count);
+		if (capture_h_count == 0) {
+			/* read session information */
+			if(_mm_session_util_read_information(-1, &cur_session, &session_options) == 0)
+				if (cur_session == MM_SESSION_TYPE_MEDIA_RECORD)
+					_mm_session_util_write_information(-1, MM_SESSION_TYPE_MEDIA, session_options);
+
+		}
 		return result;
 	}
 
@@ -482,6 +495,9 @@ int mm_sound_pcm_capture_open_ex(MMSoundPcmHandle_t *handle, const unsigned int 
 	int result = MM_ERROR_NONE;
 	int errorcode = 0;
 	int ret_mutex = 0;
+	int capture_h_count = 0;
+	int cur_session = MM_SESSION_TYPE_MEDIA;
+	int session_options = 0;
 
 	int volume_config = 0;
 	pa_sample_spec ss;
@@ -598,9 +614,18 @@ int mm_sound_pcm_capture_open_ex(MMSoundPcmHandle_t *handle, const unsigned int 
 	if(pcmHandle->handle<0) {
 		result = pcmHandle->handle;
 		debug_error("Device Open Error 0x%x\n", result);
+		if (pcmHandle->asm_handle)
+			ASM_unregister_sound(pcmHandle->asm_handle, pcmHandle->asm_event, &errorcode);
 		PCM_LOCK_DESTROY_INTERNAL(&pcmHandle->pcm_mutex_internal);
 		free(pcmHandle);
 		PCM_CAPTURE_H_COUNT_DEC();
+		PCM_CAPTURE_H_COUNT_GET(capture_h_count);
+		if (capture_h_count == 0) {
+			/* read session information */
+			if(_mm_session_util_read_information(-1, &cur_session, &session_options) == 0)
+				if (cur_session == MM_SESSION_TYPE_MEDIA_RECORD)
+					_mm_session_util_write_information(-1, MM_SESSION_TYPE_MEDIA, session_options);
+		}
 		return result;
 	}
 
